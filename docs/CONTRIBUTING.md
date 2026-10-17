@@ -1,5 +1,7 @@
 # Contributing to StarPilot
 
+For techfoundrynz/StarPilot, target feature PRs at **custom** and follow the [fork workflow](how-to/development-workflow.md).
+
 Start with the [project overview](../README.md), [build guide](how-to/laptop-device-build.md), and [developer commands](../tools/STARPILOT_DEVELOPMENT.md).
 
 ## Scope and behavior

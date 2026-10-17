@@ -1,5 +1,8 @@
 # StarPilot device CI
 
+For the day-to-day feature, review, release, and recovery process, start with
+the [development and publishing workflow](development-workflow.md).
+
 `Compile StarPilot` builds AGNOS ARM64 device binaries on GitHub's
 `ubuntu-24.04-arm` runners. It runs on pushes to `custom`, pull requests targeting
 `custom`, and manual dispatches. No self-hosted runner, SSH credentials, or
@@ -21,8 +24,9 @@ matching AGNOS runtime; it is not a standalone installation image.
 
 Successful push and manual builds of this repository's `custom` branch publish
 the tested source tree plus verified binaries to `StarPilot`. A separate job has
-write access; pull-request and upstream-candidate builds never publish. Publication checks the
-artifact checksum, source revision, complete binary allowlist, and AArch64 headers.
+write access; pull-request and upstream-candidate builds never publish. Publication
+checks the artifact checksum, source revision, complete binary allowlist, and
+AArch64 headers.
 It skips superseded source and uses an atomic, non-forced push. Each release is
 a snapshot whose only parent is the previous install commit, even when `custom`
 has been rebased. Deleted source files stay deleted; old binary commits are never
