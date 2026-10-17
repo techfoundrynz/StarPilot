@@ -1,6 +1,8 @@
 # TrueNAS SCALE GitHub Build Runner
 
-This setup runs a single GitHub self-hosted runner as a TrueNAS SCALE custom app and routes the `Compile StarPilot` workflow onto that runner.
+This is the legacy self-hosted runner setup. `Compile StarPilot` now uses hosted
+ARM64 runners; see [device CI](device-ci.md). The setup below remains relevant
+to the manual `Compile Bluescreens` workflow and custom self-hosted builds.
 
 The app container:
 
@@ -11,7 +13,7 @@ The app container:
 
 ## What this workflow does
 
-`.github/workflows/compile_starpilot.yaml` now:
+The legacy self-hosted build flow:
 
 - lets an admin choose a `target_ref` branch from the Actions UI
 - checks out that branch on the NAS runner
