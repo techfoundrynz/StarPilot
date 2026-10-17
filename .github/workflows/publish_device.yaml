@@ -1,0 +1,47 @@
+name: Publish device release
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        type: string
+        required: true
+      artifact_run:
+        type: string
+        required: true
+
+concurrency:
+  group: publish-starpilot-install
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: github.repository == 'techfoundrynz/StarPilot' && github.ref == 'refs/heads/custom'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact tested source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source }}
+          fetch-depth: 0
+
+      - name: Download matching verified device build
+        uses: actions/download-artifact@v4
+        with:
+          name: starpilot-device-${{ inputs.source }}
+          path: ${{ runner.temp }}/device-artifact
+          run-id: ${{ inputs.artifact_run }}
+          github-token: ${{ github.token }}
+
+      - name: Append install snapshot and release tag
+        env:
+          SOURCE_SHA: ${{ inputs.source }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 tools/ci/publish_device_release.py \
+            --artifact "$RUNNER_TEMP/device-artifact" --source "$SOURCE_SHA"

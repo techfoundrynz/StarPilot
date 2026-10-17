@@ -1,0 +1,134 @@
+name: Update upstream
+run-name: ${{ inputs.accept_run && format('Accept upstream candidate from run {0}', inputs.accept_run) || 'Prepare upstream update for review' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      accept_run:
+        description: "Leave blank to prepare; enter a successful preparation run ID to accept and publish"
+        type: string
+        default: ''
+
+concurrency:
+  group: update-starpilot-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'techfoundrynz/StarPilot' &&
+      github.ref == 'refs/heads/custom' && inputs.accept_run == ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.rebase.outputs.changed }}
+      source: ${{ steps.rebase.outputs.source }}
+      branch: ${{ steps.rebase.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Prepare rebased candidate without changing custom or the install branch
+        id: rebase
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 tools/ci/update_upstream.py prepare \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --directory "$RUNNER_TEMP/upstream-review"
+      - name: Save candidate metadata and review or conflict report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/upstream-review/
+          overwrite: true
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Summarize preparation
+        if: always()
+        env:
+          CHANGED: ${{ steps.rebase.outputs.changed }}
+          CANDIDATE_BRANCH: ${{ steps.rebase.outputs.branch }}
+        run: |
+          if [ "$CHANGED" = true ]; then
+            echo "Candidate: [$CANDIDATE_BRANCH]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$CANDIDATE_BRANCH)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Review the upstream-candidate artifact and device build. To accept, run Update upstream on custom with accept_run=$GITHUB_RUN_ID." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$CHANGED" = false ]; then
+            echo 'Already based on the latest upstream revision. No branches changed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Preparation failed. Review the logs and conflict report; custom and StarPilot were not changed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  test-candidate:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    uses: ./.github/workflows/build_device.yaml
+    with:
+      source: ${{ needs.prepare.outputs.source }}
+
+  accept:
+    if: >-
+      github.repository == 'techfoundrynz/StarPilot' &&
+      github.ref == 'refs/heads/custom' && inputs.accept_run != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      source: ${{ steps.promote.outputs.source }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Require a successful preparation from this repository and workflow
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPT_RUN: ${{ inputs.accept_run }}
+        run: |
+          [[ "$ACCEPT_RUN" =~ ^[0-9]+$ ]] || { echo 'Invalid run ID'; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ACCEPT_RUN" > "$RUNNER_TEMP/preparation.json"
+          jq -e --arg repo "$GITHUB_REPOSITORY" '
+            .repository.full_name == $repo and .head_branch == "custom" and
+            .event == "workflow_dispatch" and .conclusion == "success" and
+            .path == ".github/workflows/update_upstream.yaml"
+          ' "$RUNNER_TEMP/preparation.json"
+          echo "sha=$(jq -r .head_sha "$RUNNER_TEMP/preparation.json")" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/upstream-review
+          run-id: ${{ inputs.accept_run }}
+          github-token: ${{ github.token }}
+      - name: Verify candidate binaries still exist before promoting
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPT_RUN: ${{ inputs.accept_run }}
+        run: |
+          source=$(jq -er .candidate "$RUNNER_TEMP/upstream-review/candidate.json")
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$ACCEPT_RUN/artifacts" \
+            --jq '.artifacts[] | select(.expired == false) | .name' > "$RUNNER_TEMP/artifacts.txt"
+          grep -Fx "starpilot-device-$source" "$RUNNER_TEMP/artifacts.txt"
+      - name: Accept with explicit leases and retain the previous source stack
+        id: promote
+        env:
+          ACCEPT_RUN: ${{ inputs.accept_run }}
+          WORKFLOW_SHA: ${{ steps.run.outputs.sha }}
+        run: |
+          python3 tools/ci/update_upstream.py accept \
+            --metadata "$RUNNER_TEMP/upstream-review/candidate.json" \
+            --run-id "$ACCEPT_RUN" --workflow-sha "$WORKFLOW_SHA"
+
+  publish-accepted:
+    needs: accept
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish_device.yaml
+    with:
+      source: ${{ needs.accept.outputs.source }}
+      artifact_run: ${{ inputs.accept_run }}
