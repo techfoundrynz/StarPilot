@@ -43,6 +43,9 @@ the extracted sysroot are cached. The sysroot cache key includes the AGNOS
 manifest, extraction script, and Dockerfile, so an AGNOS update invalidates it.
 The build depends on the upstream container registry, Python dependencies,
 and AGNOS image host being available.
+CI also extracts Pillow and its libraries from that exact AGNOS image and checks
+a transparent WebP round-trip on ARM64 before building, verifying the pet store's
+decoder is present in the target runtime rather than only in the build container.
 
 Binary artifacts and diagnostic logs are retained for 14 days. Failed builds
 upload logs too. Superseded builds for the same branch or PR are cancelled.

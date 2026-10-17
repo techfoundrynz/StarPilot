@@ -69,6 +69,26 @@ jobs:
           # The extracted sysroot is cached; discard the multi-GB source images.
           rm -rf -- .cache/agnos
 
+      - name: Verify AGNOS pet image decoding
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.comma_sysroot/usr/local/venv/lib/python3.12/site-packages
+        run: |
+          python3 - <<'PY'
+          import io
+          from pathlib import Path
+          import PIL
+          from PIL import Image, features
+          assert Path(PIL.__file__).resolve().is_relative_to(Path('.comma_sysroot').resolve())
+          assert features.check('webp'), 'AGNOS runtime lacks WebP support'
+          data = io.BytesIO()
+          Image.new('RGBA', (192, 208), (10, 20, 30, 128)).save(data, format='WEBP', lossless=True)
+          data.seek(0)
+          with Image.open(data) as image:
+            image.load()
+            assert image.size == (192, 208) and image.getpixel((0, 0)) == (10, 20, 30, 128)
+          print(f'AGNOS Pillow {PIL.__version__}: transparent WebP round-trip passed')
+          PY
+
       - name: Build comma device binaries
         run: |
           set -o pipefail
