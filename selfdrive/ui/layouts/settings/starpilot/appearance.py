@@ -3,6 +3,8 @@ import re
 import threading
 
 from openpilot.common.params import Params
+from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.widgets.pet_store import open_pet_store
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.widgets import DialogResult
@@ -252,6 +254,14 @@ class StarPilotAppearanceLayout(_SettingsPage):
 
         # ═══ 2. Driving Widgets & HUD ═══
         self._hud_rows = [
+            SettingRow("SelectedPetId", "value", tr_noop("Pet Store"),
+                       subtitle=tr_noop("Browse, download, and choose an animated companion."),
+                       get_value=lambda: tr("Open"), on_click=open_pet_store,
+                       visible=lambda: not ui_state.started),
+            SettingRow("ShowPet", "toggle", tr_noop("Show Pet"),
+                       subtitle=tr_noop("Display your selected companion on the driving screen."),
+                       get_state=lambda: self._params.get_bool("ShowPet"),
+                       set_state=lambda s: self._params.put_bool("ShowPet", s)),
             SettingRow("Compass", "toggle", tr_noop("Compass"),
                        subtitle="",
                        get_state=lambda: self._params.get_bool("Compass"),

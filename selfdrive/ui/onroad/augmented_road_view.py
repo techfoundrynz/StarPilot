@@ -13,6 +13,7 @@ from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.lib.starpilot_status import get_screen_edge_color
+from openpilot.system.ui.widgets.pet import PetWidget
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
@@ -67,6 +68,7 @@ class AugmentedRoadView(CameraView):
     self._hud_renderer = HudRenderer()
     self.alert_renderer = AlertRenderer()
     self.driver_state_renderer = DriverStateRenderer()
+    self._pet = self._child(PetWidget(scale=0.75))
 
     # debug
     self._pm = messaging.PubMaster(['uiDebug'])
@@ -117,6 +119,10 @@ class AugmentedRoadView(CameraView):
     if self._draw_road_overlays:
       self.model_renderer.render(self._content_rect)
       self._render_extra_road_overlays(self._content_rect)
+      if ui_state.show_pet:
+        self._pet.set_position(self._content_rect.x + self._content_rect.width - self._pet.rect.width - 20,
+                               self._content_rect.y + self._content_rect.height - self._pet.rect.height - 20)
+        self._pet.render()
     if self._draw_hud_controls:
       self._hud_renderer.render(self._content_rect)
     if self._draw_driver_state:
