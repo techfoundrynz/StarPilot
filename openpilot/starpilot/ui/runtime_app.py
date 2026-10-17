@@ -208,6 +208,21 @@ class StarShellSession:
                                                vehicle_params=lambda: ui_state.CP,
                                                vision_development=lambda: diagnostic_choice_enabled(os.environ, ui_state.CP))
     self.sounds_owner = SoundsOwner(ui_state.params, self._settings_preference_authority)
+    from openpilot.system.ui.widgets.pet import PetWidget
+    self._pet = PetWidget(scale=0.5 if profile == Profile.COMPACT else 0.75)
+    previous_overlays = self.view.onroad.extra_overlays
+    def pet_overlays(rect, state):
+      if previous_overlays is not None:
+        previous_overlays(rect, state)
+      from openpilot.starpilot.ui.onroad_state import AlertSize
+      if (ui_state.started and ui_state.params.get_bool("ShowPet") and
+          state.alert.size == AlertSize.NONE and
+          state.appearance.camera_view not in (CameraViewChoice.NONE, CameraViewChoice.DRIVER) and
+          not state.reverse_driver_camera and not getattr(state, "in_reverse", False)):
+        self._pet.set_position(rect.x + rect.width - self._pet.rect.width - 4,
+                               rect.y + rect.height - self._pet.rect.height)
+        self._pet.render()
+    self.view.onroad.extra_overlays = pet_overlays
     self.appearance_owner = AppearanceOwner(ui_state.params, lambda: self._settings_preference_authority() or self._favorite_authority())
     self.pip_owner = PiPOwner(ui_state.params, self._settings_preference_authority,
                              self.pip_renderer.frame_availability.available)
@@ -807,6 +822,12 @@ class StarShellSession:
     return self.pip_owner.snapshot()
 
   def appearance_request(self, request: FeatureSettingsRequest) -> bool:
+    if request.key == "PetStore":
+      if not self.confirmed_offroad():
+        return False
+      from openpilot.selfdrive.ui.widgets.pet_store import open_pet_store
+      open_pet_store()
+      return True
     pip_request = request.key.startswith(("pip:", "PIPPreview"))
     ok = self.pip_owner.apply(request) if pip_request else self.appearance_owner.apply(request)
     if ok:
@@ -1750,6 +1771,7 @@ class StarShellSession:
     if self.bluetooth_source is not None:
       self.bluetooth_source.close()
     self.pip_warning.close()
+    self._pet.hide_event()
     self.pip_renderer.close()
     if self.model_source is not None:
       self.model_source.close()
