@@ -51,6 +51,13 @@ class AppearanceCompact:
       visible = [row for row in slc.rows if row.key in SLC_VISUAL_LABELS]
       rows[-1:-1] = visible
     for row in rows:
+      if row.key == "PetStore":
+        from openpilot.selfdrive.ui.widgets.pet_store import open_pet_store
+        button = BigButton("pet store", "browse / installed")
+        button.set_enabled(row.available)
+        button.set_click_callback(open_pet_store)
+        cards.append(button)
+        continue
       if row.key == "CameraView" and row.available:
         button = BigButton(row.label.lower(), row.value.lower())
         button.set_click_callback(lambda source=row: self._camera_options(source, refresh))

@@ -72,6 +72,7 @@ def read_camera_view(params: Any) -> SavedCameraView:
 
 
 DEFAULTS = {
+  "ShowPet": False,
   "DeveloperSidebar": False,
   "HideSpeed": False,
   "HideMaxSpeed": False,
