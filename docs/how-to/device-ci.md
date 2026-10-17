@@ -1,8 +1,9 @@
 # StarPilot device CI
 
 `Compile StarPilot` builds AGNOS ARM64 device binaries on GitHub's
-`ubuntu-24.04-arm` runners. It runs on branch pushes, pull requests, and manual
-dispatches. No self-hosted runner, SSH credentials, or repository secrets are needed.
+`ubuntu-24.04-arm` runners. It runs on pushes to `StarPilot` and `Dom`, pull
+requests, and manual dispatches. No self-hosted runner, SSH credentials, or
+repository secrets are needed.
 
 ## Run and download
 

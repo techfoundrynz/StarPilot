@@ -2,7 +2,7 @@ name: Compile StarPilot
 
 on:
   push:
-    branches: ['**']
+    branches: [StarPilot, Dom]
   pull_request:
   workflow_dispatch:
     inputs:

@@ -32,6 +32,8 @@ REQUIRED_BINARIES = (
 
 
 def verify_binary(path: Path) -> None:
+  if path.is_symlink():
+    raise ValueError(f'Expected a regular binary file: {path}')
   with path.open('rb') as binary:
     header = binary.read(20)
   # ELF64, little endian, EM_AARCH64. Reject host binaries and empty outputs.
@@ -44,9 +46,12 @@ def package(output: Path) -> Path:
     verify_binary(ROOT / relative)
   if not (ROOT / 'prebuilt').is_file():
     raise ValueError('Device build did not produce the prebuilt marker')
-  firmware = sorted((ROOT / 'panda/board/obj').glob('*.bin.signed'))
-  firmware += sorted((ROOT / 'panda/board/obj').glob('bootstub.*.bin'))
-  if not firmware or any(path.stat().st_size == 0 for path in firmware):
+  firmware_dir = ROOT / 'panda/board/obj'
+  signed = sorted(firmware_dir.glob('*.bin.signed'))
+  if not signed:
+    raise ValueError('Missing signed panda firmware')
+  firmware = signed + [firmware_dir / f'bootstub.{path.name.removesuffix(".signed")}' for path in signed]
+  if any(path.is_symlink() or not path.is_file() or path.stat().st_size == 0 for path in firmware):
     raise ValueError('Missing or empty panda firmware')
 
   # This allowlist deliberately excludes sources, Git metadata, caches and secrets.
