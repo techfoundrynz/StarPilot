@@ -1,5 +1,10 @@
 # How to contribute
 
+For `techfoundrynz/StarPilot`, follow the
+[development and publishing workflow](how-to/development-workflow.md) and target
+feature PRs at **`custom`**. The guidance below is inherited from upstream
+openpilot; references to its `master` branch and contribution process apply there.
+
 Our software is open source so you can solve your own problems without needing help from others. And if you solve a problem and are so kind, you can upstream it for the rest of the world to use. Check out our [post about externalization](https://blog.comma.ai/a-2020-theme-externalization/).
 
 Development is coordinated through [Discord](https://discord.comma.ai) and GitHub.
@@ -43,7 +48,8 @@ There's lot of bounties that don't require a comma 3X or a car.
 
 ## Pull Requests
 
-Pull requests should be against the master branch.
+For upstream openpilot, pull requests should be against the master branch.
+For this StarPilot fork, target `custom` as described above.
 
 A good pull request has all of the following:
 * a clearly stated purpose
