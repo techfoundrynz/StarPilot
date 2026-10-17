@@ -82,6 +82,7 @@ with graceful fallback to model E2E lateral outputs and safety breakout
 
 ## Developer Features
 
+* [Device CI builds](docs/how-to/device-ci.md) produce downloadable AGNOS ARM64 binaries on GitHub Actions.
 * Native and cross compilation for Windows, Mac, and Ubuntu
 * Custom AGNOS to support C3, C3X, and C4
 * Raylib UI on C3, C3X, and C4
