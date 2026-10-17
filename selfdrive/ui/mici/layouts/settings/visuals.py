@@ -1,4 +1,6 @@
 from openpilot.common.params import Params
+from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.widgets.pet_store import open_pet_store
 from openpilot.selfdrive.ui.lib.starpilot_visuals import LeadInfoMode, lead_indicator_enabled, lead_info_mode
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigParamControl, BigToggle
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog, BigMultiOptionDialog
@@ -92,6 +94,10 @@ class LeadInfoBigButton(BigButton):
 class VisualsLayoutMici(NavScroller):
   def __init__(self):
     super().__init__()
+    self._pet_store_btn = BigButton("pet store", "browse / installed")
+    self._pet_store_btn.set_click_callback(open_pet_store)
+    self._pet_store_btn.set_visible(lambda: not ui_state.started)
+    self._show_pet_btn = BigParamControl("show pet", "ShowPet")
     self._camera_view_btn = CameraViewBigButton()
     self._driver_camera_btn = BigParamControl("driver camera on reverse", "DriverCamera")
     self._stopped_timer_btn = BigParamControl("stopped timer", "StoppedTimer")
@@ -106,6 +112,8 @@ class VisualsLayoutMici(NavScroller):
     self._slc_confirmation_higher_btn = BigParamControl("confirm higher limits", "SLCConfirmationHigher")
 
     self._scroller.add_widgets([
+      self._pet_store_btn,
+      self._show_pet_btn,
       self._camera_view_btn,
       self._driver_camera_btn,
       self._stopped_timer_btn,
@@ -129,6 +137,7 @@ class VisualsLayoutMici(NavScroller):
     self._refresh()
 
   def _refresh(self):
+    self._show_pet_btn.refresh()
     self._camera_view_btn.refresh()
     self._lead_indicator_btn.refresh()
     self._lead_info_btn.refresh()
