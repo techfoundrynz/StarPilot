@@ -100,3 +100,56 @@ jobs:
             .ci-output/source-commit.txt
           if-no-files-found: warn
           retention-days: 14
+
+  publish:
+    name: Publish binaries to install branch
+    needs: device
+    if: >-
+      github.repository == 'techfoundrynz/StarPilot' &&
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/StarPilot' || github.ref == 'refs/heads/Dom')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tested source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download verified device build
+        uses: actions/download-artifact@v4
+        with:
+          name: starpilot-device-${{ github.sha }}
+          path: ${{ runner.temp }}/device-artifact
+
+      - name: Publish matching binaries
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          INSTALL_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          latest=$(git ls-remote --exit-code origin "refs/heads/$INSTALL_BRANCH" | cut -f1)
+          if [ "$latest" != "$SOURCE_SHA" ]; then
+            echo "Newer source is already on $INSTALL_BRANCH; skipping this older build."
+            exit 0
+          fi
+          python3 tools/ci/apply_device_build.py \
+            --artifact "$RUNNER_TEMP/device-artifact" \
+            --source "$SOURCE_SHA" --paths "$RUNNER_TEMP/device-paths"
+          git add -f --pathspec-from-file="$RUNNER_TEMP/device-paths" --pathspec-file-nul
+          if git diff --cached --quiet; then
+            echo "Install branch already contains these binaries."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Publish device binaries for $SOURCE_SHA [skip ci]"
+          if ! git push origin "HEAD:refs/heads/$INSTALL_BRANCH"; then
+            latest=$(git ls-remote --exit-code origin "refs/heads/$INSTALL_BRANCH" | cut -f1)
+            if [ "$latest" != "$SOURCE_SHA" ]; then
+              echo "Branch advanced during publication; leaving the newer source intact."
+              exit 0
+            fi
+            exit 1
+          fi

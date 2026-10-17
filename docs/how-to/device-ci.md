@@ -19,8 +19,19 @@ the exact commit in `source-commit.txt`. PR artifacts use the tested merge commi
 The overlay requires that checkout's source, models, third-party libraries, and
 matching AGNOS runtime; it is not a standalone installation image.
 
-Builds do not push binaries back into branches or deploy to devices. A successful
-compile and architecture check is not an on-device runtime or driving test.
+Successful push and manual builds of this repository's `StarPilot` and `Dom`
+branches publish the verified binary overlay back to the same branch. A separate
+job has write access; pull-request builds never publish. Publication checks the
+artifact checksum, source revision, complete binary allowlist, and AArch64 headers.
+It skips superseded source and uses a normal, non-forced push, so a late build
+cannot overwrite newer changes. Generated commits skip CI to avoid build loops.
+
+The installer can therefore clone matching source and binaries after publication
+finishes. For this fork, the GitHub `openpilot` redirect makes the installer value
+`techfoundrynz/StarPilot` resolve to this repository's `StarPilot` branch.
+
+Builds do not deploy to devices. A successful compile and architecture check is
+not an on-device runtime or driving test.
 The laptop build deliberately skips regenerating the QCOM-captured driver
 monitoring model and warp artifacts; use the ones from the matching checkout.
 
@@ -35,7 +46,8 @@ and AGNOS image host being available.
 
 Binary artifacts and diagnostic logs are retained for 14 days. Failed builds
 upload logs too. Superseded builds for the same branch or PR are cancelled.
-The workflow has read-only repository access.
+The build job has read-only repository access; only the trusted publication job
+can write its generated binary commit.
 
 `Compile Bluescreens` and `Publish TrueNAS Runner Image` are legacy, manual
 workflows. They are not needed for the hosted device build.
