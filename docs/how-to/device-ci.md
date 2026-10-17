@@ -1,8 +1,8 @@
 # StarPilot device CI
 
 `Compile StarPilot` builds AGNOS ARM64 device binaries on GitHub's
-`ubuntu-24.04-arm` runners. It runs on pushes to `StarPilot` and `Dom`, pull
-requests, and manual dispatches. No self-hosted runner, SSH credentials, or
+`ubuntu-24.04-arm` runners. It runs on pushes to `custom`, pull requests targeting
+`custom`, and manual dispatches. No self-hosted runner, SSH credentials, or
 repository secrets are needed.
 
 ## Run and download
@@ -19,12 +19,16 @@ the exact commit in `source-commit.txt`. PR artifacts use the tested merge commi
 The overlay requires that checkout's source, models, third-party libraries, and
 matching AGNOS runtime; it is not a standalone installation image.
 
-Successful push and manual builds of this repository's `StarPilot` and `Dom`
-branches publish the verified binary overlay back to the same branch. A separate
-job has write access; pull-request builds never publish. Publication checks the
+Successful push and manual builds of this repository's `custom` branch publish
+the tested source tree plus verified binaries to `StarPilot`. A separate job has
+write access; pull-request and upstream-candidate builds never publish. Publication checks the
 artifact checksum, source revision, complete binary allowlist, and AArch64 headers.
-It skips superseded source and uses a normal, non-forced push, so a late build
-cannot overwrite newer changes. Generated commits skip CI to avoid build loops.
+It skips superseded source and uses an atomic, non-forced push. Each release is
+a snapshot whose only parent is the previous install commit, even when `custom`
+has been rebased. Deleted source files stay deleted; old binary commits are never
+merged into the source branch. A `device-<full-source-SHA>` annotated tag records
+the release and its source revision. The release commit and tag publish together.
+Generated commits skip CI, and install branch pushes do not trigger this workflow.
 
 The installer can therefore clone matching source and binaries after publication
 finishes. For this fork, the GitHub `openpilot` redirect makes the installer value
@@ -51,6 +55,11 @@ Binary artifacts and diagnostic logs are retained for 14 days. Failed builds
 upload logs too. Superseded builds for the same branch or PR are cancelled.
 The build job has read-only repository access; only the trusted publication job
 can write its generated binary commit.
+
+`build_device.yaml` is the shared read-only builder used by ordinary CI and the
+manual upstream-update workflow. `publish_device.yaml` is the shared publisher.
+See [Maintaining the fork](upstream-updates.md) for preparing, reviewing, and
+accepting upstream updates without publishing unreviewed candidates.
 
 `Compile Bluescreens` and `Publish TrueNAS Runner Image` are legacy, manual
 workflows. They are not needed for the hosted device build.
