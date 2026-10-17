@@ -13,16 +13,15 @@ The app container:
 
 ## What this workflow does
 
-The legacy self-hosted build flow:
+The manual `Compile Bluescreens` workflow:
 
 - lets an admin choose a `target_ref` branch from the Actions UI
 - checks out that branch on the NAS runner
-- runs `./build`
-- prunes the tree with `scripts/ci_package_prebuilt_tree.sh`
+- runs the selected device build targets
 - commits the result as `build`
 - pushes that commit back to the selected branch without force-pushing
 
-Use a branch intended for built output. The prune step removes developer-facing files and is not meant for normal day-to-day development branches.
+Use a branch intended for built output; this workflow commits binaries to it.
 
 ## 1. Publish the runner image
 
@@ -99,7 +98,7 @@ Confirm all of the following:
 
 ## 5. Run a build
 
-1. Open **Actions > Compile StarPilot**.
+1. Open **Actions > Compile Bluescreens**.
 2. Click **Run workflow**.
 3. Enter the branch name in `target_ref`.
 4. Optionally set `jobs` to the parallelism you want for `./build`.
