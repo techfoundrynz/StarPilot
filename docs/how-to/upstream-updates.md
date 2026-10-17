@@ -1,5 +1,9 @@
 # Maintaining the StarPilot fork
 
+This guide covers upstream synchronization. For feature PRs, release triggers,
+publication checks, and recovery, see the
+[development and publishing workflow](development-workflow.md).
+
 ## Branches
 
 | Ref | Purpose |
@@ -91,6 +95,8 @@ local work; replay unpublished commits onto the new `origin/custom`. Do not
 `git pull` a merge of the old and new source stacks. Check out a fresh branch at
 `origin/custom` if the old local branch contains no work you need.
 
-The one-time migration preserved the original install history at
-`migration/pre-source-split`. Our initial CI and pet changes were consolidated
-without changing their combined source tree.
+The source split preserved its original install tip at `migration/pre-source-split`.
+The later install-history cleanup retained the full pre-cleanup history at
+`migration/pre-install-history-cleanup`, then established one initial release
+above upstream with identical files and binaries. Both backups are tags; normal
+install publication is append-only.
