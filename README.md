@@ -37,6 +37,11 @@ If your car isn't driving as well as you'd like, [open a ticket so we can help](
 Please see [https://wiki.firestar.link](https://wiki.firestar.link) for hardware lists,
 installation guides, and software configuration.
 
+For development in `techfoundrynz/StarPilot`, start with the
+[development and publishing workflow](docs/how-to/development-workflow.md).
+It covers feature PRs into `custom`, automatic releases to `StarPilot`, and
+reviewed upstream updates.
+
 ## Features
 
 * **Full support for Comma C3, C3X, and C4**
