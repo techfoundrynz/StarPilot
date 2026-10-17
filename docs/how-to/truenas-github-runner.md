@@ -1,6 +1,8 @@
 # TrueNAS SCALE GitHub Build Runner
 
-This setup runs a single GitHub self-hosted runner as a TrueNAS SCALE custom app and routes the `Compile StarPilot` workflow onto that runner.
+This is the legacy self-hosted runner setup. `Compile StarPilot` now uses hosted
+ARM64 runners; see [device CI](device-ci.md). The setup below remains relevant
+to the manual `Compile Bluescreens` workflow and custom self-hosted builds.
 
 The app container:
 
@@ -11,16 +13,15 @@ The app container:
 
 ## What this workflow does
 
-`.github/workflows/compile_starpilot.yaml` now:
+The manual `Compile Bluescreens` workflow:
 
 - lets an admin choose a `target_ref` branch from the Actions UI
 - checks out that branch on the NAS runner
-- runs `./build`
-- prunes the tree with `scripts/ci_package_prebuilt_tree.sh`
+- runs the selected device build targets
 - commits the result as `build`
 - pushes that commit back to the selected branch without force-pushing
 
-Use a branch intended for built output. The prune step removes developer-facing files and is not meant for normal day-to-day development branches.
+Use a branch intended for built output; this workflow commits binaries to it.
 
 ## 1. Publish the runner image
 
@@ -97,7 +98,7 @@ Confirm all of the following:
 
 ## 5. Run a build
 
-1. Open **Actions > Compile StarPilot**.
+1. Open **Actions > Compile Bluescreens**.
 2. Click **Run workflow**.
 3. Enter the branch name in `target_ref`.
 4. Optionally set `jobs` to the parallelism you want for `./build`.
