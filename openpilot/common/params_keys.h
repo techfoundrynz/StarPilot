@@ -6,6 +6,8 @@
 #include "openpilot/cereal/gen/cpp/log.capnp.h"
 
 inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
+    {"ShowPet", {PERSISTENT, BOOL, "0"}},
+    {"SelectedPetId", {PERSISTENT, STRING}},
     {"AccessToken", {CLEAR_ON_MANAGER_START | DONT_LOG, STRING}},
     {"AdbEnabled", {PERSISTENT, BOOL}},
     {"BluetoothEnabled", {PERSISTENT, BOOL}},
