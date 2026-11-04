@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-import publish_device_release as release
-import update_upstream as updates
+from tools.ci import publish_device_release as release
+from tools.ci import update_upstream as updates
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def repository(tmp_path, monkeypatch):
     return ['runtime', 'prebuilt']
 
   monkeypatch.setattr(release, 'apply', overlay)
-  return dict(base=base, custom=custom, origin=origin, work=work, tmp=tmp_path)
+  return {'base': base, 'custom': custom, 'origin': origin, 'work': work, 'tmp': tmp_path}
 
 
 def advance_upstream(repo):
@@ -60,8 +60,8 @@ def candidate(repo):
   release.git('rebase', '--onto', upstream, repo['base'])
   tested = release.git('rev-parse', 'HEAD')
   release.git('push', 'origin', 'HEAD:refs/heads/updates/upstream-123-1')
-  return dict(base=repo['custom'], upstream_base=repo['base'], upstream=upstream,
-              candidate=tested, branch='updates/upstream-123-1', run_id='123')
+  return {'base': repo['custom'], 'upstream_base': repo['base'], 'upstream': upstream,
+              'candidate': tested, 'branch': 'updates/upstream-123-1', 'run_id': '123'}
 
 
 def test_release_after_rebase_is_append_only_and_exact_source_snapshot(repository):
@@ -203,3 +203,24 @@ def test_prepare_conflict_leaves_source_and_install_unchanged(repository, monkey
   assert release.remote_head('refs/heads/custom') == source
   assert release.remote_head('refs/heads/StarPilot') == repository['base']
   assert not release.git('ls-remote', 'origin', 'refs/heads/updates/*')
+
+
+def test_v7_release_receipt_matches_promoted_binary_inventory(repository):
+  import importlib.util
+  owner_path = Path(__file__).resolve().parents[2] / 'openpilot/common/prebuilt_manifest.py'
+  owner_source = owner_path.read_text()
+  destination = Path('openpilot/common/prebuilt_manifest.py')
+  destination.parent.mkdir(parents=True)
+  destination.write_text(owner_source)
+  release.git('add', str(destination))
+  release.git('commit', '-m', 'v7 protected inventory owner')
+  repository['custom'] = release.git('rev-parse', 'HEAD')
+  release.git('push', 'origin', 'HEAD:refs/heads/custom')
+  metadata = candidate(repository)
+  updates.accept(metadata, '123', repository['custom'])
+  published = release.publish(repository['tmp'], metadata['candidate'])
+  spec = importlib.util.spec_from_file_location('test_v7_manifest', owner_path)
+  owner = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(owner)
+  assert owner.valid_receipt(release.git, published)
+  assert release.git('show', f'{published}:runtime') == 'tested binary'

@@ -11,7 +11,7 @@ The comma installer address remains **`techfoundrynz/StarPilot`**.
 | `custom` | Upstream source plus our focused commits; the default branch | Feature PRs are squash-merged here; accepted upstream updates rebase it |
 | `StarPilot` | A complete source snapshot and its matching device binaries | CI appends a release commit after a successful accepted-source build |
 | `upstream-base` | The upstream commit underlying our accepted source stack | Updated together with `custom` when accepting an upstream rebase |
-| `upstream/StarPilot` | Local tracking ref for `firestar5683/StarPilot` | `git fetch upstream` |
+| `upstream/Dom` | Local tracking ref for `firestar5683/StarPilot` | `git fetch upstream` |
 | Feature branches | Work in progress based on `custom` | Developer commits; removed after merging |
 | `updates/upstream-<run>-<attempt>` | A proposed upstream rebase | The **Update upstream** workflow prepares it for review |
 
