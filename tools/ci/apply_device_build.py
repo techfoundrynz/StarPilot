@@ -7,7 +7,10 @@ from pathlib import Path
 import re
 import tarfile
 
-from package_device_build import REQUIRED_BINARIES
+if __package__:
+  from .package_device_build import REQUIRED_BINARIES, REQUIRED_METADATA, verify_metadata
+else:
+  from package_device_build import REQUIRED_BINARIES, REQUIRED_METADATA, verify_metadata
 
 
 def apply(artifact: Path, source: str, root: Path) -> list[str]:
@@ -22,7 +25,7 @@ def apply(artifact: Path, source: str, root: Path) -> list[str]:
   if expected != f'{actual}  {archive.name}':
     raise ValueError('Artifact checksum mismatch')
 
-  required = set(REQUIRED_BINARIES) | {'prebuilt'}
+  required = set(REQUIRED_BINARIES) | set(REQUIRED_METADATA) | {'prebuilt'}
   files = {}
   total_size = 0
   with tarfile.open(archive, 'r:gz') as bundle:
@@ -32,7 +35,7 @@ def apply(artifact: Path, source: str, root: Path) -> list[str]:
       if not member.isfile() or name in files or (name not in required and not firmware):
         raise ValueError(f'Unexpected archive entry: {name}')
       total_size += member.size
-      if member.size < 0 or total_size > 64 * 1024 * 1024 or len(files) >= 256:
+      if member.size < 0 or total_size > 256 * 1024 * 1024 or len(files) >= 256:
         raise ValueError('Binary overlay exceeds size limit')
       content = bundle.extractfile(member).read()
       if name in REQUIRED_BINARIES:
@@ -43,6 +46,7 @@ def apply(artifact: Path, source: str, root: Path) -> list[str]:
       files[name] = content
   if not required.issubset(files):
     raise ValueError('Missing required runtime binaries')
+  verify_metadata(files[REQUIRED_METADATA[0]], files['openpilot/starpilot/flm/_primitive_walk.so'])
   signed = [name for name in files if name.endswith('.bin.signed')]
   if not signed or any(f'panda/board/obj/bootstub.{Path(name).name.removesuffix(".signed")}' not in files for name in signed):
     raise ValueError('Missing panda firmware or matching bootstub')
