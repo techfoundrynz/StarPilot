@@ -443,7 +443,8 @@ def description(row):
     ('temporarily ignored', 'temporarily ignores', 'fixed torque conversion', 'inactive while', 'custom display is off',
      'require', 'needs', 'uses its vehicle tune', 'unavailable', 'paused'))
   actionable = warning and (related or (not row.available or row.repair_value) and any(word in warning.lower() for word in
-    ('invalid', 'unreadable', 'cannot be read', 'unavailable', 'not supported', 'not available', 'turn on', 'repair', 'not detected', 'paused', 'required')))
+    ('invalid', 'unreadable', 'cannot be read', 'unavailable', 'not supported', 'not available', 'turn on', 'repair', 'not detected', 'paused', 'required',
+     'connect a supported vehicle')))
   if actionable and warning not in base and warning not in suffix:
     suffix = (suffix + ' ' + warning).strip()
   return ' '.join(value for value in (base, suffix) if value)
