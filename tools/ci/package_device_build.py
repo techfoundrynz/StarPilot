@@ -3,32 +3,48 @@
 
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import tarfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_BINARIES = (
-  'common/params_pyx.so',
-  'common/transformations/transformations.so',
-  'cereal/messaging/bridge',
-  'msgq_repo/msgq/ipc_pyx.so',
-  'msgq_repo/msgq/visionipc/visionipc_pyx.so',
+  'openpilot/common/libparams_c.so',
+  'msgq_repo/msgq/_ipc.so',
+  'msgq_repo/msgq/visionipc/_visionipc.so',
+  'opendbc_repo/opendbc/can/_raw_value.so',
   'rednose_repo/rednose/helpers/ekf_sym_pyx.so',
-  'selfdrive/pandad/pandad',
-  'selfdrive/pandad/pandad_api_impl.so',
-  'selfdrive/modeld/models/commonmodel_pyx.so',
-  'selfdrive/locationd/models/generated/libcar.so',
-  'selfdrive/locationd/models/generated/libpose.so',
-  'selfdrive/controls/lib/lateral_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so',
-  'selfdrive/controls/lib/lateral_mpc_lib/c_generated_code/libacados_ocp_solver_lat.so',
-  'selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so',
-  'selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/libacados_ocp_solver_long.so',
-  'system/camerad/camerad',
-  'system/loggerd/loggerd',
-  'system/loggerd/encoderd',
-  'system/loggerd/bootlog',
+  'openpilot/selfdrive/pandad/pandad',
+  'openpilot/starpilot/flm/_primitive_walk.so',
+  'openpilot/starpilot/ui/native/_raylib_extra.so',
+  'openpilot/selfdrive/locationd/models/generated/libcar.so',
+  'openpilot/selfdrive/locationd/models/generated/libpose.so',
+  'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so',
+  'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/libacados_ocp_solver_long.so',
+  'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/libacados.so',
+  'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/libblasfeo.so',
+  'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/libhpipm.so',
+  'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/libqpOASES_e.so.3.1',
+  'openpilot/system/loggerd/loggerd',
+  'openpilot/system/loggerd/encoderd',
+  'openpilot/system/loggerd/bootlog',
+  'openpilot/tools/replay/replay',
+  'openpilot/tools/replay/libmedia_mux.so',
 )
+
+
+
+REQUIRED_METADATA = ('openpilot/starpilot/flm/_primitive_walk.binding.json',)
+
+
+def verify_metadata(content: bytes, native: bytes) -> None:
+  if len(content) > 16 * 1024:
+    raise ValueError('Native binding metadata exceeds size limit')
+  value = json.loads(content)
+  if (not isinstance(value, dict) or value.get('schema') != 1 or
+      value.get('artifact_sha256') != hashlib.sha256(native).hexdigest()):
+    raise ValueError('Native binding metadata does not match binary')
 
 
 def verify_binary(path: Path) -> None:
@@ -44,6 +60,8 @@ def verify_binary(path: Path) -> None:
 def package(output: Path) -> Path:
   for relative in REQUIRED_BINARIES:
     verify_binary(ROOT / relative)
+  verify_metadata((ROOT / REQUIRED_METADATA[0]).read_bytes(),
+                  (ROOT / 'openpilot/starpilot/flm/_primitive_walk.so').read_bytes())
   if not (ROOT / 'prebuilt').is_file():
     raise ValueError('Device build did not produce the prebuilt marker')
   firmware_dir = ROOT / 'panda/board/obj'
@@ -55,7 +73,7 @@ def package(output: Path) -> Path:
     raise ValueError('Missing or empty panda firmware')
 
   # This allowlist deliberately excludes sources, Git metadata, caches and secrets.
-  paths = set(REQUIRED_BINARIES) | {'prebuilt'}
+  paths = set(REQUIRED_BINARIES) | set(REQUIRED_METADATA) | {'prebuilt'}
   paths.update(path.relative_to(ROOT).as_posix() for path in firmware)
   output.mkdir(parents=True, exist_ok=True)
   archive = output / 'starpilot-device.tar.gz'
