@@ -96,7 +96,7 @@ class AppearanceOwner:
                           ('On' if document.get('reduceMotion') else 'Off') if document is not None else 'Unavailable', source=raw,
                           choices=('Off', 'On'), available=parked and document is not None, default_value='Off',
                           reason='Show Quick Select without transitions' if document is not None else 'Repair the saved layout in Colors & Layout'),)
-    rows += (FeatureRow("PetStore", "Pet Store", "Open", choices=("Open",), available=parked, reason="Browse / Installed"),)
+    rows += (FeatureRow("PetStore", "Pet Store", "Browse / Installed", page="pets", available=parked),)
     return FeatureSettingsState(page="appearance", title="Onroad HUD" if profile == Profile.LARGE else "Visuals",
                                 subtitle="Display preferences; border highlights apply to C4 only.",
                                 rows=tuple(rows), parked=parked)

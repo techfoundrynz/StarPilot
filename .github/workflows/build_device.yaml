@@ -96,6 +96,18 @@ jobs:
           print(f'AGNOS Pillow {PIL.__version__}: transparent WebP round-trip passed')
           PY
 
+      - name: Prepare source-matched QCOM captures from accepted upstream
+        run: |
+          git fetch --no-tags --depth=1 origin refs/heads/upstream-base
+          base=$(git rev-parse FETCH_HEAD)
+          docker run --rm --platform linux/arm64 -e QCOM_BASE="$base" \
+            -v "$PWD:/work" -w /work "$COMMA_BUILD_IMAGE" bash -c '
+              export UV_CACHE_DIR=/work/.cache/uv
+              export UV_PYTHON_INSTALL_DIR=/work/.cache/uv-python
+              UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 /usr/local/bin/uv sync --frozen --all-extras
+              /work/.venv-linux-arm64/bin/python -m tools.ci.prepare_qcom_package --base "$QCOM_BASE"
+            '
+
       - name: Build comma device binaries
         run: |
           set -o pipefail

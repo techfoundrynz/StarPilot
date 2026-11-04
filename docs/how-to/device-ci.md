@@ -67,3 +67,11 @@ accepting upstream updates without publishing unreviewed candidates.
 
 `Compile Bluescreens` and `Publish TrueNAS Runner Image` are legacy, manual
 workflows. They are not needed for the hosted device build.
+
+For v7 laptop/hosted builds, CI prepares the DM and camera-warp QCOM captures
+from `upstream-base` only after validating that commit's protected build receipt
+and checking that all model/compiler inputs match the candidate source. Chunked
+artifacts are integrity-checked before reuse. Changed model inputs require a new
+verified hardware package; the workflow does not attribute old captures to new
+compiler inputs. The builder invokes its pinned `/usr/local/bin/uv` explicitly
+so the AGNOS login-shell environment cannot select an older bundled version.
