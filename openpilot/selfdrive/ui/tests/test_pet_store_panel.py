@@ -8,6 +8,9 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+def unexpected(message):
+  raise AssertionError(message)
+
 
 @pytest.fixture
 def panel_env(monkeypatch):
@@ -105,6 +108,7 @@ def panel_env(monkeypatch):
     monkeypatch.setitem(sys.modules, name, module)
   path = Path(__file__).parents[1] / "widgets" / "pet_store.py"
   spec = importlib.util.spec_from_file_location("pet_panel_under_test", path)
+  assert spec is not None and spec.loader is not None
   module = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(module)
   panel = module.PetStorePanel()
@@ -177,6 +181,7 @@ def test_failed_catalog_preserves_offline_selection(panel_env):
 def load_display():
   path = Path(__file__).parents[3] / "system" / "ui" / "widgets" / "pet.py"
   spec = importlib.util.spec_from_file_location("pet_display_under_test", path)
+  assert spec is not None and spec.loader is not None
   module = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(module)
   return module.PetWidget()
@@ -184,8 +189,8 @@ def load_display():
 
 def test_display_without_selection_loads_no_artwork(panel_env, monkeypatch):
   display = load_display()
-  monkeypatch.setattr(display._store, "sprite_path", lambda _: pytest.fail("No asset should be looked up"))
-  monkeypatch.setattr(display._image, "load", lambda _: pytest.fail("No asset should be loaded"))
+  monkeypatch.setattr(display._store, "sprite_path", lambda _: unexpected("No asset should be looked up"))
+  monkeypatch.setattr(display._image, "load", lambda _: unexpected("No asset should be loaded"))
   display._render(None)
   assert display._image.texture is None
 
@@ -195,7 +200,7 @@ def test_missing_selected_pet_draws_nothing(panel_env, monkeypatch):
   state.params["SelectedPetId"] = "missing"
   display = load_display()
   monkeypatch.setattr(display._store, "sprite_path", lambda _: None)
-  monkeypatch.setattr(display._image, "draw", lambda *args: pytest.fail("Missing pet must not draw"))
+  monkeypatch.setattr(display._image, "draw", lambda *args: unexpected("Missing pet must not draw"))
   display._render(None)
   assert display._image.texture is None
 
@@ -212,7 +217,7 @@ def test_corrupt_selected_pet_draws_nothing(panel_env, monkeypatch, tmp_path):
     raise ValueError("Invalid image")
 
   monkeypatch.setattr(display._image, "load", corrupt)
-  monkeypatch.setattr(display._image, "draw", lambda *args: pytest.fail("Corrupt pet must not draw"))
+  monkeypatch.setattr(display._image, "draw", lambda *args: unexpected("Corrupt pet must not draw"))
   display._render(None)
   assert display._image.texture is None
 

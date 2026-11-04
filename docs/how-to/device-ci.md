@@ -16,7 +16,7 @@ repository secrets are needed.
 
 The artifact contains `starpilot-device.tar.gz`, `SHA256SUMS`, and
 `source-commit.txt`. The tarball is a binary overlay: native runtime binaries,
-panda firmware, and the `prebuilt` marker. It preserves executable permissions.
+panda firmware, the FLM native binding metadata, and the `prebuilt` marker. Publication refreshes the protected inventory receipt (`prebuilt.json`) after applying the verified overlay. It preserves executable permissions.
 Verify with `sha256sum -c SHA256SUMS`, then extract into a Linux checkout of
 the exact commit in `source-commit.txt`. PR artifacts use the tested merge commit.
 The overlay requires that checkout's source, models, third-party libraries, and
@@ -67,3 +67,11 @@ accepting upstream updates without publishing unreviewed candidates.
 
 `Compile Bluescreens` and `Publish TrueNAS Runner Image` are legacy, manual
 workflows. They are not needed for the hosted device build.
+
+For v7 laptop/hosted builds, CI prepares the DM and camera-warp QCOM captures
+from `upstream-base` only after validating that commit's protected build receipt
+and checking that all model/compiler inputs match the candidate source. Chunked
+artifacts are integrity-checked before reuse. Changed model inputs require a new
+verified hardware package; the workflow does not attribute old captures to new
+compiler inputs. The builder invokes its pinned `/usr/local/bin/uv` explicitly
+so the AGNOS login-shell environment cannot select an older bundled version.

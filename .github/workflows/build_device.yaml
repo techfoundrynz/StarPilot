@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source }}
-          submodules: recursive
+          # Dependencies are vendored ordinary source directories in v7.
           persist-credentials: false
 
       - name: Record source revision
@@ -45,7 +45,7 @@ jobs:
       - name: Test CI publication and update handling
         run: |
           python3 -m pip install pytest
-          python3 -m pytest -q -c /dev/null --confcutdir=tools/ci tools/ci
+          python3 -m pytest -q -c /dev/null --confcutdir=tools/ci tools/ci/test_package_device_build.py tools/ci/test_source_workflow.py
 
       - name: Set up Docker builder
         uses: docker/setup-buildx-action@v3
@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .comma_sysroot
-          key: agnos-sysroot-arm64-${{ hashFiles('system/hardware/tici/agnos.json', 'tools/laptop_device_build/extract_sysroot_from_agnos.py', 'tools/laptop_device_build/Dockerfile') }}
+          key: agnos-sysroot-arm64-${{ hashFiles('openpilot/common/hardware/comma/agnos.json', 'tools/laptop_device_build/extract_sysroot_from_agnos.py', 'tools/laptop_device_build/Dockerfile') }}
 
       - name: Extract AGNOS sysroot
         if: steps.sysroot.outputs.cache-hit != 'true'
@@ -95,6 +95,20 @@ jobs:
             assert image.size == (192, 208) and image.getpixel((0, 0)) == (10, 20, 30, 128)
           print(f'AGNOS Pillow {PIL.__version__}: transparent WebP round-trip passed')
           PY
+
+      - name: Prepare source-matched QCOM captures from accepted upstream
+        run: |
+          git fetch --no-tags --depth=1 origin refs/heads/upstream-base
+          base=$(git rev-parse FETCH_HEAD)
+          docker run --rm --platform linux/arm64 \
+            --user "${COMMA_DOCKER_RUN_USER:-$(id -u):$(id -g)}" -e QCOM_BASE="$base" \
+            -v "$PWD:/work" -w /work "$COMMA_BUILD_IMAGE" bash -c '
+              export HOME=/tmp
+              export UV_CACHE_DIR=/work/.cache/uv
+              export UV_PYTHON_INSTALL_DIR=/work/.cache/uv-python
+              UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 /usr/local/bin/uv sync --frozen --all-extras
+              /work/.venv-linux-arm64/bin/python -m tools.ci.prepare_qcom_package --base "$QCOM_BASE"
+            '
 
       - name: Build comma device binaries
         run: |

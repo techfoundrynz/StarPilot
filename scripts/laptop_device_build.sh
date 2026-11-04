@@ -534,7 +534,7 @@ export HOME=/tmp
 export PARAMS_ROOT=/tmp/params
 mkdir -p "\${UV_CACHE_DIR}"
 mkdir -p "\${PARAMS_ROOT}"
-UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 uv sync --frozen --all-extras
+UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 /usr/local/bin/uv sync --frozen --all-extras
 source /work/.venv-linux-arm64/bin/activate
 export COMMA_LAPTOP_CROSS_BUILD=1
 CACHE_FLAG="--cache-disable"
@@ -696,7 +696,7 @@ export HOME=/tmp
 export PARAMS_ROOT=/tmp/params
 mkdir -p "\${UV_CACHE_DIR}"
 mkdir -p "\${PARAMS_ROOT}"
-UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 uv sync --frozen --all-extras
+UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 /usr/local/bin/uv sync --frozen --all-extras
 source /work/.venv-linux-arm64/bin/activate
 cd /work
 python3 openpilot/system/manager/manager.py${manager_args_q}

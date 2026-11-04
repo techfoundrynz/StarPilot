@@ -8,7 +8,10 @@ from pathlib import Path
 import re
 import subprocess
 
-from publish_device_release import git, remote_head
+if __package__:
+  from .publish_device_release import git, remote_head
+else:
+  from publish_device_release import git, remote_head
 
 
 def output(**values: str) -> None:
@@ -27,13 +30,13 @@ def prepare(run_id: str, attempt: str, directory: Path) -> dict:
     raise ValueError('custom changed since this workflow started; run it again')
   git('fetch', '--no-tags', 'origin', 'refs/heads/upstream-base')
   old_upstream = git('rev-parse', 'FETCH_HEAD')
-  git('fetch', '--no-tags', 'https://github.com/firestar5683/StarPilot.git', 'refs/heads/StarPilot')
+  git('fetch', '--no-tags', 'https://github.com/firestar5683/StarPilot.git', 'refs/heads/Dom')
   upstream = git('rev-parse', 'FETCH_HEAD')
   git('merge-base', '--is-ancestor', old_upstream, base)
   branch = f'updates/upstream-{run_id}-{attempt}'
   if upstream == old_upstream:
     output(changed='false')
-    (directory / 'review.txt').write_text('Already based on the latest upstream StarPilot commit. No update needed.\n')
+    (directory / 'review.txt').write_text('Already based on the latest upstream Dom commit. No update needed.\n')
     return {}
   git('switch', '-c', branch)
   git('config', 'rerere.enabled', 'true')
@@ -49,8 +52,8 @@ def prepare(run_id: str, attempt: str, directory: Path) -> dict:
     git('rebase', '--abort')
     raise
   candidate = git('rev-parse', 'HEAD')
-  metadata = dict(base=base, upstream_base=old_upstream, upstream=upstream,
-                  candidate=candidate, branch=branch, run_id=run_id)
+  metadata = {'base': base, 'upstream_base': old_upstream, 'upstream': upstream,
+                  'candidate': candidate, 'branch': branch, 'run_id': run_id}
   (directory / 'candidate.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
   review = git('range-diff', f'{old_upstream}..{base}', f'{upstream}..{candidate}')
   (directory / 'review.txt').write_text(review + '\n', encoding='utf-8')
