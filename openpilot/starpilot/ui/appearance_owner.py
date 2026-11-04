@@ -41,7 +41,8 @@ class AppearanceOwner:
        "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics")
     if profile == Profile.COMPACT and include_large:
       keys = ("DeveloperSidebar", *keys)
-    keys = (*keys, "ShowPet")
+    if "ShowPet" not in keys:
+      keys = (*keys, "ShowPet")
     rows = []
     if profile == Profile.COMPACT:
       saved_camera = read_camera_view(self.params)
@@ -95,7 +96,7 @@ class AppearanceOwner:
                           ('On' if document.get('reduceMotion') else 'Off') if document is not None else 'Unavailable', source=raw,
                           choices=('Off', 'On'), available=parked and document is not None, default_value='Off',
                           reason='Show Quick Select without transitions' if document is not None else 'Repair the saved layout in Colors & Layout'),)
-    rows += (FeatureRow("PetStore", "Pet Store", "Browse / Installed", choices=("Open",), available=parked),)
+    rows += (FeatureRow("PetStore", "Pet Store", "Open", choices=("Open",), available=parked, reason="Browse / Installed"),)
     return FeatureSettingsState(page="appearance", title="Onroad HUD" if profile == Profile.LARGE else "Visuals",
                                 subtitle="Display preferences; border highlights apply to C4 only.",
                                 rows=tuple(rows), parked=parked)

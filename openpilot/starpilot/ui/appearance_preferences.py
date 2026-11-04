@@ -72,7 +72,6 @@ def read_camera_view(params: Any) -> SavedCameraView:
 
 
 DEFAULTS = {
-  "ShowPet": False,
   "DeveloperSidebar": False,
   "HideSpeed": False,
   "HideMaxSpeed": False,
@@ -92,6 +91,7 @@ DEFAULTS = {
   "SignalMetrics": False,
   "ShowSpeedLimits": True,
   "UseVienna": False,
+  "ShowPet": False,
 }
 MAX_RAW_BYTES = 16
 # Superseded by the onroad customization document; read only to retire them.

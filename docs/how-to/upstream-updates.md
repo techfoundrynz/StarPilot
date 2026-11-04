@@ -8,7 +8,7 @@ publication checks, and recovery, see the
 
 | Ref | Purpose |
 | --- | --- |
-| `upstream/StarPilot` | Local remote-tracking ref for `firestar5683/StarPilot` |
+| `upstream/Dom` | Local remote-tracking ref for `firestar5683/StarPilot` |
 | `origin/upstream-base` | Exact upstream commit underlying the accepted custom patch stack |
 | `custom` | Default development branch: upstream plus our focused source commits |
 | `StarPilot` | Append-only installation history: source snapshots plus matching device binaries |
@@ -67,9 +67,9 @@ Use a clean checkout and keep unrelated work on a separate branch first:
 
 ```sh
 git fetch origin
-git fetch upstream StarPilot
+git fetch upstream Dom
 git switch -c updates/local-upstream origin/custom
-git rebase --onto upstream/StarPilot origin/upstream-base
+git rebase --onto upstream/Dom origin/upstream-base
 # Resolve the reported conflicts, git add the resolved files, then:
 git rebase --continue
 ```

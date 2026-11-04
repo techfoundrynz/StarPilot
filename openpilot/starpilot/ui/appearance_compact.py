@@ -53,9 +53,9 @@ class AppearanceCompact:
     for row in rows:
       if row.key == "PetStore":
         from openpilot.selfdrive.ui.widgets.pet_store import open_pet_store
-        button = BigButton("pet store", "browse / installed")
-        button.set_enabled(row.available)
-        button.set_click_callback(open_pet_store)
+        button = BigButton("pet store", "browse / installed") if row.available else GreyBigButton("pet store", "park to browse")
+        if row.available:
+          button.set_click_callback(open_pet_store)
         cards.append(button)
         continue
       if row.key == "CameraView" and row.available:
