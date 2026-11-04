@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from openpilot.starpilot.ui.feature_reset_question import feature_reset_question
 from openpilot.starpilot.ui.lane_change_feature import confirm_question as lane_change_question
+from openpilot.starpilot.ui.onroad_layers import PetLayer, open_pet_store, render_stock_confidence, visual_border_state
 
 from collections import deque
 from dataclasses import asdict, dataclass, replace
@@ -73,7 +74,7 @@ from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter, curr
 from openpilot.starpilot.ui.runtime_software import deliver_software
 from openpilot.starpilot.ui.network_panel import NetworkPanelBridge
 from openpilot.starpilot.ui.slc_action_dispatch import SlcActionDispatcher
-from openpilot.starpilot.ui.onroad_state import AlertSize, BorderSignals, OnroadRequest, OnroadState, SlcUiRequest, is_personality_notice
+from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadRequest, SlcUiRequest, is_personality_notice
 from openpilot.starpilot.ui.onroad_favorites import OnroadFavorites
 from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
 from openpilot.starpilot.favorites.owner import FavoritesOwner
@@ -121,10 +122,6 @@ def validate_runtime_assets() -> None:
   validate_artwork()
 
 
-def render_stock_confidence(camera_owner: Any, rect: rl.Rectangle, state: OnroadState) -> None:
-  camera_owner.render_stock_confidence_layer(rect, lateral_active=state.lateral_active)
-
-
 @lru_cache(maxsize=1)
 def _slc_action_publisher() -> messaging.PubMaster:
   """One producer for state-bound planner actions from the UI."""
@@ -142,15 +139,6 @@ class _AolSave:
   cancel: threading.Event
   done: threading.Event
   saved: bool = False
-
-
-def visual_border_state(state: OnroadState, signals: Signals) -> OnroadState:
-  border = state.border_signals
-  if border is None or not (signals.vasm_left or signals.vasm_right):
-    return state
-  return replace(state, border_signals=BorderSignals(
-    border.left_blinker, border.right_blinker,
-    border.left_blindspot or signals.vasm_left, border.right_blindspot or signals.vasm_right))
 
 
 class StarShellSession:
@@ -214,21 +202,8 @@ class StarShellSession:
                                                vehicle_params=lambda: ui_state.CP,
                                                vision_development=lambda: diagnostic_choice_enabled(os.environ, ui_state.CP))
     self.sounds_owner = SoundsOwner(ui_state.params, self._settings_preference_authority)
-    from openpilot.system.ui.widgets.pet import PetWidget
-    self._pet = PetWidget(scale=0.5 if profile == Profile.COMPACT else 0.75)
-    previous_overlays = self.view.onroad.extra_overlays
-    def pet_overlays(rect, state):
-      if previous_overlays is not None:
-        previous_overlays(rect, state)
-      from openpilot.starpilot.ui.onroad_state import AlertSize
-      if (ui_state.started and ui_state.params.get_bool("ShowPet") and
-          state.alert.size == AlertSize.NONE and
-          state.appearance.camera_view not in (CameraViewChoice.NONE, CameraViewChoice.DRIVER) and
-          not state.reverse_driver_camera and not state.reversing):
-        self._pet.set_position(rect.x + rect.width - self._pet.rect.width - 4,
-                               rect.y + rect.height - self._pet.rect.height)
-        self._pet.render()
-    self.view.onroad.extra_overlays = pet_overlays
+    self._pet_layer = PetLayer(profile, self.view.onroad.extra_overlays, ui_state)
+    self.view.onroad.extra_overlays = self._pet_layer.render
     self.appearance_owner = AppearanceOwner(ui_state.params, lambda: self._settings_preference_authority() or self._favorite_authority())
     self.pip_owner = PiPOwner(ui_state.params, self._settings_preference_authority,
                              self.pip_renderer.frame_availability.available)
@@ -830,11 +805,7 @@ class StarShellSession:
 
   def appearance_request(self, request: FeatureSettingsRequest) -> bool:
     if request.key == "PetStore":
-      if not self.confirmed_offroad():
-        return False
-      from openpilot.selfdrive.ui.widgets.pet_store import open_pet_store
-      open_pet_store()
-      return True
+      return open_pet_store(self.confirmed_offroad)
     pip_request = request.key.startswith(("pip:", "PIPPreview"))
     ok = self.pip_owner.apply(request) if pip_request else self.appearance_owner.apply(request)
     if ok:
@@ -1187,6 +1158,9 @@ class StarShellSession:
     elif action.kind == "open" and not state.editor and action.row is not None and action.row in state.rows:
       if action.row.presets and action.row.available:
         self.appearance_edit_key = action.row.key
+      elif action.row.page == "pets":
+        self.appearance_request(FeatureSettingsRequest("PetStore", None, "Open"))
+        return
       elif action.row.page == "pip":
         self.appearance_page = "pip"
         self.appearance_scroll = 0
@@ -1836,7 +1810,7 @@ class StarShellSession:
     if self.bluetooth_source is not None:
       self.bluetooth_source.close()
     self.pip_warning.close()
-    self._pet.hide_event()
+    self._pet_layer.close()
     self.pip_renderer.close()
     if self.model_source is not None:
       self.model_source.close()
