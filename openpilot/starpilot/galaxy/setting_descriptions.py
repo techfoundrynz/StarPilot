@@ -7,6 +7,8 @@ from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HEL
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
 DESCRIPTIONS = {
+  'ShowPet': 'Shows your selected animated companion in the driving view.',
+  'PetStore': 'Opens the on-device pet catalog to download, select, or remove companions while parked.',
   'DisengageOnAccelerator': 'When enabled, pressing the accelerator pedal will disengage openpilot.',
   'ReduceMotion': 'Reduces interface animations for a steadier display.',
   'IsMetric': 'On displays speed and distance in kilometers; Off uses miles. Saved speed-limit offsets keep their physical values.',

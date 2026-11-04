@@ -7,9 +7,13 @@ import zipfile
 import pytest
 from PIL import Image
 
+def unexpected(message):
+  raise AssertionError(message)
+
 from openpilot.system.ui.lib.pet_store import DIMENSIONS, ORIGIN, PetStore, PetStoreError, _url
 
-PET = {"id": "test-pet", "displayName": "Test Pet", "ownerName": "Artist", "spriteVersionNumber": 1}
+PET_ID = "test-pet"
+PET = {"id": PET_ID, "displayName": "Test Pet", "ownerName": "Artist", "spriteVersionNumber": 1}
 
 
 def image_bytes(size=(1536, 1872), image_format="WEBP"):
@@ -24,7 +28,7 @@ def sprite():
 
 
 def package(sprite, manifest=None, entries=None):
-  manifest = manifest if manifest is not None else {"id": PET["id"], "spritesheetPath": "spritesheet.webp"}
+  manifest = manifest if manifest is not None else {"id": PET_ID, "spritesheetPath": "spritesheet.webp"}
   result = io.BytesIO()
   with zipfile.ZipFile(result, "w") as archive:
     archive.writestr("pet.json", json.dumps(manifest))
@@ -40,17 +44,19 @@ def test_install_offline_selection_remove(tmp_path, monkeypatch, sprite):
   result = store.install(PET)
   assert result["ownerName"] == "Artist"
   assert len(result["packageSha256"]) == 64
-  with Image.open(store.sprite_path(PET["id"])) as image:
+  path = store.sprite_path(PET_ID)
+  assert path is not None
+  with Image.open(path) as image:
     assert image.format == "PNG"
     assert image.size == DIMENSIONS[1]
   offline = PetStore(store.root)
-  monkeypatch.setattr(offline, "_download", lambda *args: pytest.fail("offline access performed network I/O"))
-  assert offline.installed()[0]["id"] == PET["id"]
-  assert offline.install(PET)["id"] == PET["id"]
+  monkeypatch.setattr(offline, "_download", lambda *args: unexpected("offline access performed network I/O"))
+  assert offline.installed()[0]["id"] == PET_ID
+  assert offline.install(PET)["id"] == PET_ID
   assert offline.sprite_path("../../elsewhere") is None
-  offline.remove(PET["id"])
+  offline.remove(PET_ID)
   assert offline.installed() == []
-  assert offline.sprite_path(PET["id"]) is None
+  assert offline.sprite_path(PET_ID) is None
 
 
 @pytest.mark.parametrize("extra", ["../escape", "/escape", "folder/pet.json", "spritesheet.webp"])
@@ -143,12 +149,12 @@ def test_reject_foreign_origins(url):
 
 
 def test_remove_does_not_follow_unexpected_content(tmp_path):
-  directory = tmp_path / PET["id"]
+  directory = tmp_path / PET_ID
   directory.mkdir()
   unexpected = directory / "do-not-remove.txt"
   unexpected.write_text("keep")
   with pytest.raises(PetStoreError):
-    PetStore(tmp_path).remove(PET["id"])
+    PetStore(tmp_path).remove(PET_ID)
   assert unexpected.read_text() == "keep"
 
 

@@ -204,7 +204,7 @@ class FeatureNavigationTests(unittest.TestCase):
         session.view = NS(features=FeatureSettingsView(fonts) if profile == Profile.LARGE else None,
                           onroad=NS(navigation=NS(cancel=lambda: None)), close=lambda: None)
         session.drive_state = NS(physical=NS(close=lambda: None))
-        session.galaxy_flow = session.pip_warning = session.pip_renderer = session.fonts = NS(close=lambda: None)
+        session.galaxy_flow = session.pip_warning = session.pip_renderer = session.fonts = session._pet_layer = NS(close=lambda: None)
         session.bluetooth_source = session.model_source = session.map_source = None
         session.feature_owner = FeatureSettingsOwner(params, lambda _: True, vehicle_fingerprint=lambda: None)
         request = FeatureSettingsRequest("AlwaysOnLateral", b"1", "Off")

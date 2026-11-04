@@ -12,7 +12,7 @@ from openpilot.system.ui.lib.pet_texture import PetTexture
 @pytest.fixture
 def context():
   if not os.getenv("DISPLAY"):
-    pytest.skip("Native pet uploads require a display / Xvfb")
+    pytest.skip()  # Native uploads require a display / Xvfb.
   rl.set_config_flags(rl.ConfigFlags.FLAG_WINDOW_HIDDEN)
   rl.init_window(320, 240, "Pet texture regression")
   try:
@@ -43,7 +43,7 @@ def test_native_pet_upload_draw_and_release(context, tmp_path, size, atlas, from
 
 def test_real_pet_panel_and_search_keyboard_render(tmp_path, monkeypatch):
   if not os.getenv("DISPLAY"):
-    pytest.skip("Native pet panel requires a display / Xvfb")
+    pytest.skip()  # Native panels require a display / Xvfb.
   from openpilot.selfdrive.ui.ui_state import ui_state
   from openpilot.selfdrive.ui.widgets.pet_store import PetStorePanel
   from openpilot.system.ui.lib.application import gui_app

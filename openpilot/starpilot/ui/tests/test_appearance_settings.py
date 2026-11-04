@@ -53,11 +53,14 @@ class AppearanceSettingsTests(unittest.TestCase):
     for profile in Profile:
       rows = {row.key: row for row in self.owner.snapshot(profile).rows}
       self.assertTrue(rows["PetStore"].available)
-      self.assertEqual(row_change(rows["PetStore"]).key, "PetStore")
+      self.assertEqual(rows["PetStore"].page, "pets")
       self.assertEqual(rows["ShowPet"].value, "Off")
-    self.assertTrue(self.owner.apply(row_change(self.row("ShowPet"))))
+    request = row_change(self.row("ShowPet"))
+    assert request is not None
+    self.assertTrue(self.owner.apply(request))
     self.assertTrue(self.params.get_bool("ShowPet"))
     request = row_change(self.row("ShowPet"))
+    assert request is not None
     self.parked = False
     for profile in Profile:
       rows = {row.key: row for row in self.owner.snapshot(profile).rows}
@@ -68,7 +71,8 @@ class AppearanceSettingsTests(unittest.TestCase):
   def test_absent_defaults_are_read_only_and_match_both_views(self):
     self.assertEqual(onroad_appearance(self.params), OnroadAppearance())
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.LARGE).rows),
-                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "BlindSpotMetrics", "SignalMetrics", "ShowPet", "ReduceMotion", "PetStore"))
+                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "BlindSpotMetrics",
+                      "SignalMetrics", "ShowPet", "ReduceMotion", "PetStore"))
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.COMPACT).rows),
                      ("CameraView", "DriverCamera", "StockConfidenceBallWidget", "HidePersonalityAlerts", "ShowBrakeStatus",
                       "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics", "ShowPet", "PetStore"))
