@@ -6,7 +6,10 @@ from pathlib import Path
 import re
 import subprocess
 
-from apply_device_build import apply
+if __package__:
+  from .apply_device_build import apply
+else:
+  from apply_device_build import apply
 
 
 def git(*args: str) -> str:
@@ -37,6 +40,14 @@ def publish(artifact: Path, source: str) -> str | None:
 
   paths = apply(artifact, source, Path.cwd())
   git('add', '-f', '--', *paths)
+  manifest = Path('openpilot/common/prebuilt_manifest.py')
+  if manifest.is_file():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('release_prebuilt_manifest', manifest)
+    owner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(owner)
+    owner.write_receipt(Path.cwd())
+    git('add', '-f', 'prebuilt.json')
   tree = git('write-tree')
   # The source tree may have been rebased. Only the previous install commit is
   # the parent, so device history always advances without merging old binaries.

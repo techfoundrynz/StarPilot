@@ -1,18 +1,13 @@
 import hashlib
-import importlib.util
 import io
-from pathlib import Path
+import json
 import tarfile
 
 import pytest
 
 
-spec = importlib.util.spec_from_file_location('package_device_build', Path(__file__).with_name('package_device_build.py'))
-packager = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(packager)
-apply_spec = importlib.util.spec_from_file_location('apply_device_build', Path(__file__).with_name('apply_device_build.py'))
-applier = importlib.util.module_from_spec(apply_spec)
-apply_spec.loader.exec_module(applier)
+from tools.ci import package_device_build as packager
+from tools.ci import apply_device_build as applier
 SOURCE = 'a' * 40
 
 
@@ -27,6 +22,8 @@ def device_tree(tmp_path, monkeypatch):
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(header)
+  metadata = root / packager.REQUIRED_METADATA[0]
+  metadata.write_text(json.dumps({'schema': 1, 'artifact_sha256': hashlib.sha256(header).hexdigest()}))
   (root / 'prebuilt').touch()
   firmware = root / 'panda/board/obj'
   firmware.mkdir(parents=True)
@@ -40,7 +37,7 @@ def test_only_binary_allowlist_is_archived(device_tree, tmp_path):
   (device_tree / 'source.py').write_text('print("source")')
   archive = packager.package(tmp_path / 'output')
   with tarfile.open(archive) as bundle:
-    assert set(bundle.getnames()) == set(packager.REQUIRED_BINARIES) | {
+    assert set(bundle.getnames()) == set(packager.REQUIRED_BINARIES) | set(packager.REQUIRED_METADATA) | {
       'prebuilt', 'panda/board/obj/panda.bin.signed', 'panda/board/obj/bootstub.panda.bin',
     }
   digest = hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -80,7 +77,7 @@ def test_apply_preserves_source_and_lists_only_binary_paths(artifact, tmp_path):
   target.mkdir()
   (target / 'source.py').write_text('unchanged')
   paths = applier.apply(artifact, SOURCE, target)
-  assert set(paths) == set(packager.REQUIRED_BINARIES) | {
+  assert set(paths) == set(packager.REQUIRED_BINARIES) | set(packager.REQUIRED_METADATA) | {
     'prebuilt', 'panda/board/obj/panda.bin.signed', 'panda/board/obj/bootstub.panda.bin',
   }
   assert (target / 'source.py').read_text() == 'unchanged'
@@ -132,3 +129,10 @@ def test_apply_rejects_invalid_overlay_before_writing(artifact, tmp_path, bad_en
   with pytest.raises(ValueError):
     applier.apply(artifact, SOURCE, target)
   assert not target.exists()
+
+
+def test_rejects_native_binding_mismatch_before_archive(device_tree, tmp_path):
+  (device_tree / packager.REQUIRED_METADATA[0]).write_text('{"schema":1,"artifact_sha256":"wrong"}')
+  with pytest.raises(ValueError, match="metadata"):
+    packager.package(tmp_path / 'output')
+  assert not (tmp_path / 'output/starpilot-device.tar.gz').exists()
