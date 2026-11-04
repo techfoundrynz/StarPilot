@@ -218,7 +218,7 @@ class StarShellSession:
       if (ui_state.started and ui_state.params.get_bool("ShowPet") and
           state.alert.size == AlertSize.NONE and
           state.appearance.camera_view not in (CameraViewChoice.NONE, CameraViewChoice.DRIVER) and
-          not state.reverse_driver_camera and not getattr(state, "in_reverse", False)):
+          not state.reverse_driver_camera and not state.reversing):
         self._pet.set_position(rect.x + rect.width - self._pet.rect.width - 4,
                                rect.y + rect.height - self._pet.rect.height)
         self._pet.render()

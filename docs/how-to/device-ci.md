@@ -16,7 +16,7 @@ repository secrets are needed.
 
 The artifact contains `starpilot-device.tar.gz`, `SHA256SUMS`, and
 `source-commit.txt`. The tarball is a binary overlay: native runtime binaries,
-panda firmware, and the `prebuilt` marker. It preserves executable permissions.
+panda firmware, the FLM native binding metadata, and the `prebuilt` marker. Publication refreshes the protected inventory receipt (`prebuilt.json`) after applying the verified overlay. It preserves executable permissions.
 Verify with `sha256sum -c SHA256SUMS`, then extract into a Linux checkout of
 the exact commit in `source-commit.txt`. PR artifacts use the tested merge commit.
 The overlay requires that checkout's source, models, third-party libraries, and

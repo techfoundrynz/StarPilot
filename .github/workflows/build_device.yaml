@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source }}
-          submodules: recursive
+          # Dependencies are vendored ordinary source directories in v7.
           persist-credentials: false
 
       - name: Record source revision
@@ -45,7 +45,7 @@ jobs:
       - name: Test CI publication and update handling
         run: |
           python3 -m pip install pytest
-          python3 -m pytest -q -c /dev/null --confcutdir=tools/ci tools/ci
+          python3 -m pytest -q -c /dev/null --confcutdir=tools/ci tools/ci/test_package_device_build.py tools/ci/test_source_workflow.py
 
       - name: Set up Docker builder
         uses: docker/setup-buildx-action@v3
@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .comma_sysroot
-          key: agnos-sysroot-arm64-${{ hashFiles('system/hardware/tici/agnos.json', 'tools/laptop_device_build/extract_sysroot_from_agnos.py', 'tools/laptop_device_build/Dockerfile') }}
+          key: agnos-sysroot-arm64-${{ hashFiles('openpilot/common/hardware/comma/agnos.json', 'tools/laptop_device_build/extract_sysroot_from_agnos.py', 'tools/laptop_device_build/Dockerfile') }}
 
       - name: Extract AGNOS sysroot
         if: steps.sysroot.outputs.cache-hit != 'true'

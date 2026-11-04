@@ -20,12 +20,12 @@ V1 packages use the nine animation rows of a 1536×1872 sprite sheet. V2 package
 
 ## Development and validation
 
-`ShowPet` and `SelectedPetId` are persistent native parameters. Rebuild the native parameter bindings (or install a complete new device build) before running the updated UI; copying only Python files onto an older build is insufficient. Pillow is a runtime dependency for validating packages and converting their WebP sprite sheets to PNG.
+`ShowPet` and `SelectedPetId` are persistent native parameters. Rebuild the native parameter library (or install a complete new device build) before running the updated UI; copying only Python files onto an older build is insufficient. Pillow is a runtime dependency for validating packages and converting their WebP sprite sheets to PNG.
 
 Focused tests cover package validation, bounded downloads, atomic installation, offline removal, selection persistence, panel lifecycle, absent/corrupt artwork, and animation state transitions:
 
 ```sh
-pytest system/ui/tests/test_pet_store.py selfdrive/ui/tests/test_pet_store_panel.py
+./dev python -m pytest openpilot/system/ui/tests/test_pet_store.py openpilot/selfdrive/ui/tests/test_pet_store_panel.py
 ```
 
 Validation includes live catalog/poster downloads and v1/v2 package installation in temporary storage, plus hidden raylib rendering of the store at both UI sizes. The UI tests stub device messaging and hardware. Rendering smoke tests do not establish device performance or validate touch interaction, driving transitions, and placement on physical hardware; those require a rebuilt device image and a device smoke test.
