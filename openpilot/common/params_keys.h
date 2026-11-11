@@ -314,6 +314,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PairingEmail", {PERSISTENT, STRING}},
     {"ConnectProvider", {PERSISTENT, STRING, "comma"}},
     {"PairingProvider", {PERSISTENT, STRING}},
+    {"PairingPromptDismissed", {PERSISTENT, BOOL, "0"}},
     {"PedalsOnUI", {PERSISTENT, BOOL, "0"}},
     {"PrimeType", {PERSISTENT, INT}},
     {"RainbowPath", {PERSISTENT, BOOL, "0"}},

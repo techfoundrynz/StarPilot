@@ -264,7 +264,8 @@ class MiciOffroadAlerts(Scroller):
   def _params_worker(self):
     drop_realtime()
     while True:
-      self._pending_params = ({"UpdaterNewDescription": self.params.get("UpdaterNewDescription")} |
+      self._pending_params = ({"UpdaterNewDescription": self.params.get("UpdaterNewDescription"),
+                               "PairingPromptDismissed": self.params.get_bool("PairingPromptDismissed")} |
                               {alert_data.key: self.params.get(alert_data.key) for alert_data in self.sorted_alerts})
       time.sleep(REFRESH_INTERVAL)
 
@@ -303,6 +304,8 @@ class MiciOffroadAlerts(Scroller):
 
       text = ""
       alert_json = pending_params[alert_data.key]
+      if alert_data.key == "Offroad_Pairing" and pending_params.get("PairingPromptDismissed", False):
+        alert_json = None
 
       if alert_json:
         text = alert_json.get("text", "").replace("%1", alert_json.get("extra", ""))
