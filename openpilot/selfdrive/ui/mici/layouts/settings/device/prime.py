@@ -134,12 +134,19 @@ class PrimeScroller(NavScroller):
     else:
       self._qr = QR(self._get_pairing_url())
       self._scroller.scroll_indicator_start_after = self._qr
+      self._dismiss_pairing_btn = BigButton("don't show again", "Keep pairing available in device settings")
+      self._dismiss_pairing_btn.set_click_callback(self._dismiss_pairing)
       self._scroller.add_widgets([
         self._qr,
         GreyBigButton("finish setup", f"scan QR code or visit {active_provider().web}",
                       gui_app.texture("icons_mici/settings/device/green_settings.png", 64, 64)),
+        self._dismiss_pairing_btn,
         GreyBigButton("", "connect lets you review recent driving footage and bookmark events."),
       ])
+
+  def _dismiss_pairing(self):
+    self._params.put_bool("PairingPromptDismissed", True, block=True)
+    self.dismiss()
 
   def _get_pairing_url(self) -> str:
     provider = active_provider()
