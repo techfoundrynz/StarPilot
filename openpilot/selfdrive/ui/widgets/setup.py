@@ -1,5 +1,6 @@
 from openpilot.starpilot.ui.raylib import rl
 from openpilot.common.time_helpers import system_time_valid
+from openpilot.common.params import Params
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.widgets.pairing_dialog import PairingDialog
 from openpilot.system.ui.lib.application import gui_app, FontWeight, FONT_SCALE
@@ -14,8 +15,12 @@ from openpilot.system.ui.widgets.label import Label
 class SetupWidget(Widget):
   def __init__(self):
     super().__init__()
+    self._params = Params()
+    self._pairing_dismissed = self._params.get_bool("PairingPromptDismissed")
     self._open_settings_callback = None
     self._pair_device_btn = Button(lambda: tr("Pair device"), self._show_pairing, button_style=ButtonStyle.PRIMARY)
+    self._dismiss_btn = Button(lambda: tr("Don't show again"), self._dismiss_pairing, font_size=40,
+                               button_style=ButtonStyle.TRANSPARENT_WHITE_TEXT)
     self._open_settings_btn = Button(lambda: tr("Open"), lambda: self._open_settings_callback() if self._open_settings_callback else None,
                                      button_style=ButtonStyle.PRIMARY)
     self._firehose_label = Label(lambda: tr("Firehose Mode"), font_weight=FontWeight.MEDIUM, font_size=64)
@@ -26,9 +31,14 @@ class SetupWidget(Widget):
 
   def _render(self, rect: rl.Rectangle):
     if not ui_state.prime_state.is_paired():
-      self._render_registration(rect)
+      if not self._pairing_dismissed:
+        self._render_registration(rect)
     else:
       self._render_firehose_prompt(rect)
+
+  def _dismiss_pairing(self):
+    self._params.put_bool("PairingPromptDismissed", True, block=True)
+    self._pairing_dismissed = True
 
   def _render_registration(self, rect: rl.Rectangle):
     """Render registration prompt."""
@@ -52,8 +62,9 @@ class SetupWidget(Widget):
       rl.draw_text_ex(light_font, line, rl.Vector2(x, y), 50, 0, rl.WHITE)
       y += 50 * FONT_SCALE
 
-    button_rect = rl.Rectangle(x, y + 30, w, 200)
+    button_rect = rl.Rectangle(x, y + 30, w, 130)
     self._pair_device_btn.render(button_rect)
+    self._dismiss_btn.render(rl.Rectangle(x, button_rect.y + button_rect.height + 20, w, 90))
 
   def _render_firehose_prompt(self, rect: rl.Rectangle):
     """Render firehose prompt widget."""
