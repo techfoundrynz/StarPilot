@@ -175,6 +175,8 @@ class TestRuntimeSnapshot(unittest.TestCase):
     adapter = RuntimeSnapshotAdapter(ui)
     state = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
     self.assertTrue(state.lead_detected and state.gas_pressed_override and state.right_hand_drive)
+    state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 1_000_000_000).onroad
+    self.assertTrue(state.gas_pressed_override, 'events last until the next once-a-second send, so the blink stays steady')
     ui.sm.recv_frame['longitudinalPlan'] = ui.sm.recv_frame['onroadEvents'] = 0
     state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 1).onroad
     self.assertFalse(state.lead_detected or state.gas_pressed_override)
@@ -822,6 +824,8 @@ class TestRuntimeSnapshot(unittest.TestCase):
   def test_zero_speed_remains_visible_across_signed_filtered_estimates(self):
     from openpilot.starpilot.ui.raylib import rl
     from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud
+    from openpilot.starpilot.ui.presentation import Profile
+    from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
 
     for metric in (False, True):
       ui = ui_fake()
@@ -834,12 +838,13 @@ class TestRuntimeSnapshot(unittest.TestCase):
           state = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
           self.assertEqual(state.speed_mps, max(0.0, speed))
           fonts = Mock(spec=BitmapFonts)
+          fonts.profile = Profile.LARGE
           fonts.measure.return_value = NS(width=10, height=20)
           fonts.vertical_ink.return_value = (0., 20.)
           CurrentSpeedHud(fonts).render(rl.Rectangle(0, 0, 1800, 1020), state)
-          self.assertEqual(fonts.draw.call_args_list[0].args[0], "1" if speed == 0.44704 and not metric else
+          self.assertEqual(foreground_calls(fonts.draw)[0].args[0], "1" if speed == 0.44704 and not metric else
                            str(round(max(0., speed) * (3.6 if metric else 2.2369362921))))
-          self.assertEqual(fonts.draw.call_args_list[1].args[0], "km/h" if metric else "mph")
+          self.assertEqual(foreground_calls(fonts.draw)[1].args[0], "km/h" if metric else "mph")
       ui.sm.logMonoTime["carState"] = NOW - 2_000_000_000
       self.assertIsNone(adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.speed_mps)
 
@@ -955,7 +960,8 @@ class TestRuntimeSnapshot(unittest.TestCase):
     adapter = RuntimeSnapshotAdapter(ui)
     state = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
     self.assertTrue(state.torque_source_available)
-    self.assertAlmostEqual(state.torque_utilization, (0.002 * 16 ** 2 - 0.01 * 9.81) / 3)
+    self.assertTrue(state.torque_is_demand)
+    self.assertAlmostEqual(state.torque_utilization, 0.002 * 16 ** 2 / 3)
     ui.sm.logMonoTime["vehicleParameters"] = NOW - 1_000_000_000
     self.assertFalse(adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.torque_source_available)
 

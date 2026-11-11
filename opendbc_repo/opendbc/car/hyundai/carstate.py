@@ -348,9 +348,10 @@ class CarState(CarStateBase):
       self.lkas11 = copy.copy(cp_cam.vl["LKAS11"])
     self.clu11 = copy.copy(cp.vl["CLU11"])
     from opendbc.car.hyundai.classic_long_aol import independent_buttons_qualified
+    from opendbc.car.hyundai.blended_stock_aol import qualified_alpha
     self.ev6_aol_samples = ()
     self.ev6_aol_source_healthy = False
-    if independent_buttons_qualified(self.CP):
+    if independent_buttons_qualified(self.CP) or qualified_alpha(self.CP, marked_only=True):
       from opendbc.can.parser import MAX_BAD_COUNTER
       source = cp.message_states.get(cp.dbc.name_to_msg['CLU11'].address)
       self.ev6_aol_sample_stamp_ns = int(source.timestamps[-1]) if source is not None and source.timestamps else 0
@@ -684,17 +685,19 @@ class CarState(CarStateBase):
       if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
         cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
     elif CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl:
-      # The acknowledged ADAS takeover removes stock SCC from E-CAN. Require
-      # every independent native input and the matching camera source instead.
+      # Both topologies require genuine chassis inputs; only HDA-II uses
+      # the camera template after acknowledged ADAS takeover.
       msgs.extend((("ACCELERATOR", 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
       msgs.extend((("CRUISE_BUTTONS_ALT", math.nan), ("DOORS_SEATBELTS", math.nan),
                    ("STEERING_SENSORS", math.nan), ("BLINKERS", math.nan)))
-      cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
+      if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+        cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
     elif CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and not CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS:
       # Stock standard-button Ioniq 6 reads alternate DISTANCE_UNIT too, but
       # that frame may be absent. Subscribe before the lazy lookup makes it
       # required; existing native and CarState safety inputs remain required.
-      msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
+      if not any(name == "CRUISE_BUTTONS_ALT" for name, _ in msgs):
+        msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
     from opendbc.car.hyundai.ev6_startup import eligible as ev6_eligible
     from opendbc.car.hyundai.gv70_startup import eligible as gv70_eligible
     if ev6_eligible(CP) or gv70_eligible(CP):

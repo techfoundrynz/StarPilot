@@ -24,6 +24,7 @@ class LongitudinalContext:
   custom_acceleration: bool | None = None
   profile_max_accel: float | None = None
   faster_takeoffs: bool = False
+  force_stop_braking: bool = False
 
 
 class LongitudinalExtension:
@@ -43,8 +44,9 @@ class LongitudinalExtension:
     self.vehicle_target = getattr(self.vehicle_policy, "target", None)
     self.kp = self.vehicle_policy.kp if self.vehicle_policy is not None else 0.0
     self.ki = getattr(self.vehicle_policy, "ki", None)
-    from opendbc.car.toyota.sng import eligible as toyota_sng_eligible
+    from opendbc.car.toyota.sng import eligible as toyota_sng_eligible, supported as toyota_resume_supported
     self.ignore_cruise_standstill = bool(getattr(self.vehicle_policy, "ignore_cruise_standstill", False) or
+      CP.autoResumeSng and toyota_resume_supported(CP) or
       getattr(startup_preferences, "toyota_sng", False) and toyota_sng_eligible(CP))
 
   def qualify_resume(self, default, *, preferences, inputs):
@@ -163,3 +165,4 @@ def create_extension(cp, startup_preferences=None):
       not extension.ignore_cruise_standstill):
     return None
   return extension
+

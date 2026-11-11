@@ -32,7 +32,7 @@ class TestOnroadAxes(unittest.TestCase):
   def setUp(self):
     for name in ('draw_rectangle_rounded', 'draw_rectangle_rounded_lines_ex', 'draw_circle', 'draw_ring'):
       self.enterContext(patch('openpilot.starpilot.ui.speed_limit_widget.rl.' + name, new_callable=Mock))
-    for name in ('circle', 'arrow', 'outline', 'confirmation'):
+    for name in ('circle', 'arrow', 'outline', 'button'):
       self.enterContext(patch('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.' + name, new_callable=Mock))
     self.ui = ui_fake()
     self.ui.CP = NS(carFingerprint='', openpilotLongitudinalControl=True, pcmCruise=False)
@@ -113,7 +113,7 @@ class TestOnroadAxes(unittest.TestCase):
         state = self.state(lateral, longitudinal)
         self.assertEqual((state.lateral_active, state.longitudinal_active), (lateral, longitudinal))
         self.assertEqual(rgba(axis_status_color(state)), expected)
-        fonts = Mock()
+        fonts = Mock(profile=Profile.LARGE)
         fonts.measure.return_value = NS(width=20, height=10)
         fonts.vertical_ink.return_value = (0, 10)
         fonts.horizontal_ink.return_value = (0, 20)
@@ -121,7 +121,8 @@ class TestOnroadAxes(unittest.TestCase):
           UnifiedSpeedWidget(fonts).render(rl.Rectangle(30, 30, 1800, 1020), state)
         from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
         label_color = foreground_calls(fonts.draw)[0].args[-1]
-        self.assertEqual(rgba(label_color), (190, 208, 202, 255))
+        self.assertEqual(rgba(label_color), (255, 255, 255, 255))
+        fonts.profile = Profile.COMPACT
         compact = CompactHudRenderer(fonts, Path("/unused"))
         with patch.object(compact, "prepare"), patch("openpilot.starpilot.ui.onroad_compact_widgets.rl.draw_texture_pro"), \
              patch("openpilot.starpilot.ui.onroad_compact_widgets.rl.draw_circle_gradient"):
@@ -219,22 +220,24 @@ class TestOnroadAxes(unittest.TestCase):
               nativeAcknowledged=True, desiredLongitudinal=True)
     self.ui.sm.put('aolAxisState', axis)
     self.assertTrue(self.state(True, False).longitudinal_overridden)
-    for field, value in (('qualified', False), ('sessionId', ''), ('observedMonoTime', NOW + 1),
-                         ('validUntilMonoTime', NOW - 1), ('nativeAcknowledged', False)):
+    for field, value in (('qualified', False), ('sessionId', ''), ('nativeAcknowledged', False), ('desiredLongitudinal', False)):
       with self.subTest(field=field):
         original = getattr(axis, field)
         setattr(axis, field, value)
         state = self.state(True, False)
         self.assertFalse(state.longitudinal_overridden or state.driver_override_active or state.cruise_active)
         setattr(axis, field, original)
-    for stamp in (NOW + 1, NOW - 31_000_000):
+    self.ui.sm.logMonoTime['aolAxisState'] = NOW - 60_000_000
+    self.assertTrue(self.state(True, False).longitudinal_overridden,
+                    'a late UI frame past the 30 ms control window does not blink the override edge')
+    for stamp in (NOW + 1, NOW - 201_000_000):
       self.ui.sm.logMonoTime['aolAxisState'] = stamp
       self.assertFalse(self.state(True, False).longitudinal_overridden)
     self.ui.sm.logMonoTime['aolAxisState'] = NOW
     self.ui.sm.recv_frame['aolAxisState'] = self.ui.started_frame
     self.assertFalse(self.state(True, False).longitudinal_overridden)
     self.ui.sm.recv_frame['aolAxisState'] = self.ui.started_frame + 1
-    for flags in (self.ui.sm.valid, self.ui.sm.alive, self.ui.sm.seen):
+    for flags in (self.ui.sm.valid, self.ui.sm.alive):
       flags['aolAxisState'] = False
       self.assertFalse(self.state(True, False).longitudinal_overridden)
       flags['aolAxisState'] = True
@@ -314,12 +317,11 @@ class TestOnroadAxes(unittest.TestCase):
           view.steering_wheel = Mock()
           view.compact_hud = Mock()
           view.compact_sidebar = Mock()
-          view._fade = None
           with patch.object(onroad.clip, "begin_scissor_mode"), patch.object(onroad.clip, "end_scissor_mode"), \
                patch.object(onroad.rl, "draw_rectangle_rec"), patch.object(onroad.rl, "draw_rectangle_gradient_v"), \
                patch.object(onroad.rl, "draw_rectangle_lines_ex"), patch.object(onroad.rl, "draw_rectangle"), \
                patch.object(onroad.rl, "draw_texture_ex"), patch.object(onroad.rl, "draw_rectangle_rounded_lines_ex") as border, \
-               patch.object(onroad, "render_corner_hint"), patch.object(view, "_prepare_compact_fade"), \
+               patch.object(onroad, "render_corner_hint"), \
                patch.object(view, "_slc_actions"):
             view.render(state)
           expected = compact_color if profile == Profile.COMPACT else rgba(axis_status_color(state))
@@ -376,14 +378,15 @@ class TestOnroadAxes(unittest.TestCase):
     self.assertTrue(state.cruise_active)
     self.assertFalse(state.longitudinal_active)
     self.assertEqual(rgba(axis_status_color(state)), (18, 40, 57, 255))
-    fonts = Mock()
+    fonts = Mock(profile=Profile.LARGE)
     fonts.measure.return_value = NS(width=20, height=10)
     fonts.vertical_ink.return_value = (0, 10)
     fonts.horizontal_ink.return_value = (0, 20)
     with patch("openpilot.starpilot.ui.onroad_large_widgets.draw_control_card"), patch.object(rl, "draw_line_ex"):
       UnifiedSpeedWidget(fonts).render(rl.Rectangle(30, 30, 1800, 1020), state)
     from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
-    self.assertEqual(rgba(foreground_calls(fonts.draw)[0].args[-1]), (190, 208, 202, 255))
+    self.assertEqual(rgba(foreground_calls(fonts.draw)[0].args[-1]), (255, 255, 255, 255))
+    fonts.profile = Profile.COMPACT
     compact = CompactHudRenderer(fonts, Path("/unused"))
     with patch("openpilot.starpilot.ui.onroad_compact_widgets.rl.draw_circle_gradient"):
       compact.render(state)
@@ -410,7 +413,7 @@ class TestOnroadAxes(unittest.TestCase):
     self.assertEqual(rgba(axis_status_color(stale)), (18, 40, 57, 255))
     touch.release(120, 530, stale)
     self.assertEqual(requests, [])
-    fonts = Mock()
+    fonts = Mock(profile=Profile.COMPACT)
     fonts.measure.return_value = NS(width=20, height=10)
     fonts.vertical_ink.return_value = (0, 10)
     compact = CompactHudRenderer(fonts, Path("/unused"))
@@ -435,6 +438,34 @@ class TestOnroadAxes(unittest.TestCase):
       torque.render(rl.Rectangle(0, 0, 476, 240), stale, 536)
       self.assertFalse(gpu.frames)
     self.assertEqual(torque._alpha_filter.x, 0)
+
+  def test_banked_demand_reaches_actual_widget_and_resets_on_feedback_kind_change(self):
+    self.ui.CP.maxLateralAccel = 1.5
+    self.ui.sm["carState"].vEgo = 20
+    self.ui.sm.put("vehicleParameters", NS(valid=True, roll=.08))
+    self.ui.sm.put("controlsState", NS(longControlState="pid", lateralControlState=NS(which=lambda: "curvatureState"),
+                                        curvature=.001, desiredCurvature=.001))
+    state = self.state(True, False)
+    self.assertTrue(state.torque_is_demand and state.torque_source_available)
+    self.assertAlmostEqual(state.torque_utilization, .4 / 1.5)
+    widget = TorqueBarWidget()
+    rect = rl.Rectangle(0, 0, 476, 240)
+    with record_gpu() as gpu:
+      for _ in range(30):
+        widget.render(rect, state, 536)
+      self.assertGreater(gpu.frames[-1].uniforms['indicatorNormals'][2], 0)
+      self.assertEqual(gpu.frames[-1].uniforms['gradient'][1:], (1, 0, 1))
+      widget.render(rect, replace(state, torque_is_demand=False, torque_utilization=-1), 536)
+      self.assertLess(widget._torque_filter.x, 0, "never color retained demand as actual torque")
+      widget.render(rect, replace(state, torque_drive_frame=99, torque_utilization=-1), 536)
+      self.assertLess(widget._torque_filter.x, 0, "new drive resets prior direction")
+      self.ui.sm.logMonoTime["vehicleParameters"] = NOW - 1_000_000_000
+      stale = self.state(True, False)
+      self.assertFalse(stale.torque_source_available)
+      gpu.frames.clear()
+      widget.render(rect, stale, 536)
+      self.assertFalse(gpu.frames)
+      self.assertEqual(widget._torque_filter.x, 0)
 
   def test_missing_actual_torque_output_stays_hidden_with_active_axes(self):
     self.ui.sm.put("controlsState", NS(longControlState="pid", lateralControlState=NS(which=lambda: "torqueState")))

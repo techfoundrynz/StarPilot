@@ -10,11 +10,10 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
-import hashlib
-import json
 
 from openpilot.starpilot.ui.raylib import rl
 
+from openpilot.starpilot.ui.onroad_rear_fog import render_rear_fog
 from openpilot.starpilot.ui import clip
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.starpilot.ui.onroad_customization import (CLOCK_WIDGET, MODE_WIDGET, RAIL_WIDGETS, STOPPED_TIMER_WIDGET, placement, rgba,
@@ -25,7 +24,7 @@ from openpilot.starpilot.ui.onroad_alerts import AlertRenderer
 from openpilot.starpilot.ui.onroad_border import render_compact_half_borders, render_large_half_borders
 from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer, MiciSidebarWidgets
 from openpilot.starpilot.ui.onroad_personality import PersonalityWidget
-from openpilot.starpilot.ui.onroad_curve import controlling as curve_controlling, glow_color, intensity, render_glow, status_label
+from openpilot.starpilot.ui.onroad_curve import GlowPhase, controlling as curve_controlling, glow_color, intensity, render_glow, status_label
 from openpilot.starpilot.ui.onroad_conditional import stop_active
 from openpilot.starpilot.ui.onroad_corner import CornerHintCache, render_corner_hint
 from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud, UnifiedSpeedWidget, SteeringWheelWidget
@@ -38,8 +37,7 @@ from openpilot.starpilot.ui.onroad_torque import TorqueBarWidget
 from openpilot.starpilot.ui.onroad_navigation import NavigationCard
 from openpilot.starpilot.ui.onroad_navigation_favorites import NavigationFavorites
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
-from openpilot.starpilot.ui.large_speed_geometry import ACTION_TEXT_SIZE
-from openpilot.starpilot.ui.speed_limit_widget import INK, MUTED, draw_ink
+from openpilot.starpilot.ui.speed_limit_widget import MUTED, draw_ink
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 
 
@@ -47,19 +45,6 @@ CameraLayer = Callable[[rl.Rectangle, OnroadState], None]
 OverlayLayer = Callable[[rl.Rectangle, OnroadState], None]
 PipLayer = Callable[[rl.Rectangle, OnroadState], None]
 ProjectionControlLayer = Callable[[OnroadState], None]
-
-def _load_fade(path: Path) -> rl.Texture:
-  entry = next(item for item in json.loads(Path(__file__).with_name('onroad-assets.json').read_text())['files']
-               if Path(item['file']).name == path.name)
-  with path.open('rb') as stream:
-    data = stream.read(entry['bytes'] + 1)
-  if len(data) != entry['bytes'] or hashlib.sha256(data).hexdigest() != entry['sha256']:
-    raise ValueError(f'Unreviewed onroad fade art: {path.name}')
-  texture = rl.load_texture(str(path))
-  if not texture.id:
-    raise RuntimeError(f'Unable to load onroad fade art: {path.name}')
-  return texture
-
 
 def driving_mode_description(state: OnroadState) -> str:
   if state.longitudinal_overridden:
@@ -126,6 +111,7 @@ class OnroadView:
     self.wall_clock = wall_clock or (lambda: datetime.now().astimezone())
     self._corner_cache = CornerHintCache()
     self.quick_select_layer = None
+    self._curve_glow_phase = GlowPhase()
     gui_app.add_render_prepare(self._corner_cache.prepare, self._corner_cache.close)
     self.fonts = fonts
     self.camera_layer = camera_layer
@@ -159,12 +145,6 @@ class OnroadView:
       self.compact_hud = CompactHudRenderer(fonts, asset_directory)
       self.compact_sidebar = MiciSidebarWidgets(fonts)
       self.personality = self.compact_sidebar.personality
-      self._fade_path = asset_directory / "icons_mici/onroad/onroad_fade.png"
-      self._fade: rl.Texture | None = None
-
-  def _prepare_compact_fade(self) -> None:
-    if self._fade is None:
-      self._fade = _load_fade(self._fade_path)
 
   def render(self, state: OnroadState) -> None:
     if state.camera_available and self.camera_layer is None:
@@ -175,38 +155,16 @@ class OnroadView:
       self._compact(state)
 
   def _slc_actions(self, state: OnroadState) -> None:
-    from openpilot.starpilot.ui.onroad_state import slc_action_bounds
-    from openpilot.starpilot.ui.unified_speed_presentation import toyota_cruise_notice
     if manual_slc_confirmation(self.fonts.profile, state):
       sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
       sign.render_confirmation(state, getattr(self, 'pressed_action', lambda: None)())
       return
-    notice = toyota_cruise_notice(state)
-    bounds = slc_action_bounds(self.fonts.profile, state)
-    if notice is not None and state.alert.size == AlertSize.NONE:
-      large = self.fonts.profile == Profile.LARGE
-      left, top, right = bounds[0][0], bounds[0][1], bounds[-1][2]
-      center = (left + right) / 2
-      primary = ACTION_TEXT_SIZE[self.fonts.profile]
-      secondary = 32 if large else 20
-      for text, size, y in ((notice[0], primary, top + (8 if large else 4)),
-                            (notice[1], secondary, top + (64 if large else 43))):
-        a, b = self.fonts.horizontal_ink(text, FontRole.MEDIUM, size)
-        draw_ink(self.fonts, text, FontRole.MEDIUM, size, center - (a + b) / 2, y, INK)
-      value, unit = notice[2:]
-      value_left, value_right = self.fonts.horizontal_ink(value, FontRole.MEDIUM, primary)
-      unit_left, unit_right = self.fonts.horizontal_ink(unit, FontRole.MEDIUM, secondary)
-      value_width, unit_width = value_right - value_left, unit_right - unit_left
-      x = center - (value_width + 8 + unit_width) / 2
-      y = top + (100 if large else 64)
-      _, value_height = draw_ink(self.fonts, value, FontRole.MEDIUM, primary, x - value_left, y, INK)
-      a, b = self.fonts.vertical_ink(unit, FontRole.MEDIUM, secondary)
-      draw_ink(self.fonts, unit, FontRole.MEDIUM, secondary, x + value_width + 8 - unit_left, y + value_height - (b - a), INK)
-      return
     feedback = state.speed_limit.action_feedback
     if (self.fonts.profile == Profile.LARGE and feedback and state.alert.size == AlertSize.NONE and
         placement(state.customization, self.fonts.profile, 'speed_limit_actions')['enabled']):
-      draw_ink(self.fonts, feedback, FontRole.MEDIUM, 30, bounds[0][0], bounds[0][1] + 24, MUTED)
+      from openpilot.starpilot.ui.onroad_state import slc_action_bounds
+      first, _ = slc_action_bounds(self.fonts.profile, state)
+      draw_ink(self.fonts, feedback, FontRole.MEDIUM, 30, first[0], first[1] + 24, MUTED)
 
   def _preview_badge(self, state: OnroadState) -> None:
     """Keep synthetic replay visibly identified even over a full alert."""
@@ -245,6 +203,9 @@ class OnroadView:
         state.appearance.camera_view == CameraViewChoice.DRIVER or state.reverse_driver_camera):
       return
     width, height = widget_size(state.customization, profile, MODE_WIDGET)
+    x, y = position["x"] + center_shift, position["y"]
+    if slc_action_occludes(profile, state, (x, y, x + width, y + height)):
+      return
     size = 40 if profile == Profile.LARGE else 18
     role = FontRole.SEMI_BOLD
     lines = [""]
@@ -282,10 +243,29 @@ class OnroadView:
     measured = self.fonts.measure(text, role, size)
     x = position["x"] + center_shift + (width - measured.width) / 2
     y = position["y"] + (height - measured.height) / 2
+    left, right = self.fonts.horizontal_ink(text, role, size)
+    top, bottom = self.fonts.vertical_ink(text, role, size)
+    if slc_action_occludes(profile, state, (x + left, y + top, x + right, y + bottom)):
+      return
     color = rl.Color(*rgba(state.customization, "text", profile, CLOCK_WIDGET))
     offset_px = 2 if profile == Profile.LARGE else 1
     self.fonts.draw(text, role, size, x + offset_px, y + offset_px, rl.Color(0, 0, 0, min(color.a, 170)))
     self.fonts.draw(text, role, size, x, y, color)
+
+  def _weather(self, state: OnroadState, center_shift: float = 0) -> None:
+    if (not placement(state.customization, self.fonts.profile, 'weather')['enabled'] or
+        state.alert.size != AlertSize.NONE or state.appearance.camera_view == CameraViewChoice.DRIVER or state.reverse_driver_camera):
+      return
+    position = placement(state.customization, self.fonts.profile, 'weather')
+    width, height = widget_size(state.customization, self.fonts.profile, 'weather')
+    x, y = position['x'] + center_shift, position['y']
+    if slc_action_occludes(self.fonts.profile, state, (x, y, x + width, y + height)):
+      return
+    from openpilot.starpilot.ui.weather import WeatherClient
+    from openpilot.starpilot.ui.onroad_weather import render_weather
+    if not hasattr(self, '_weather_client'):
+      self._weather_client = WeatherClient()
+    render_weather(self.fonts, state, self._weather_client, center_shift)
 
   def _ordered_widgets(self, content, state, *, driver_camera=False, stock_layer=None, only_widget=None):
     profile = str(self.fonts.profile)
@@ -353,6 +333,9 @@ class OnroadView:
       submit("driver_monitor", lambda: monitor(content, state))
     submit(MODE_WIDGET, lambda: self._driving_mode(state, (width - 1860) / 2 if large else 0))
     submit(CLOCK_WIDGET, lambda: self._clock(state, (width - 1860) / 2 if large else 0))
+    submit("weather", lambda: self._weather(state, (width - 1860) / 2 if large else 0))
+    if state.alert.size != AlertSize.FULL:
+      submit("rear_fog", lambda: render_rear_fog(state, profile))
     pending = manual_slc_confirmation(self.fonts.profile, state)
     for key in widget_order(state.customization, profile):
       if only_widget is not None and key != only_widget:
@@ -381,7 +364,6 @@ class OnroadView:
         self.background_layer(content, state)
       ordered = bool(state.customization.get("widgetOrder", {}).get("large"))
       if ordered:
-        rl.draw_rectangle_gradient_v(30, 30, int(content.width), 300, rl.Color(0, 0, 0, 114), rl.BLANK)
         self._ordered_widgets(content, state)
         if self.extra_overlays is not None:
           self.extra_overlays(content, state)
@@ -392,7 +374,6 @@ class OnroadView:
         map_layer = getattr(self, "map_layer", None)
         if map_layer is not None and state.alert.size != AlertSize.FULL:
           map_layer(content, state)
-        rl.draw_rectangle_gradient_v(30, 30, int(content.width), 300, rl.Color(0, 0, 0, 114), rl.BLANK)
         if state.alert.size != AlertSize.FULL:
           if placement(state.customization, "large", "cruise_limits")["enabled"]:
             self.unified_speed.render(content, state)
@@ -433,12 +414,15 @@ class OnroadView:
           jetlink.render(state)
         self._driving_mode(state, right_shift / 2)
         self._clock(state, right_shift / 2)
+        self._weather(state, right_shift / 2)
         if exit_layer := getattr(self, "projection_exit_layer", None):
           exit_layer(state)
       if not ordered and manual_slc_confirmation(self.fonts.profile, state):
         self._slc_actions(state)
       if not self.projection_viewport and (quick_select := getattr(self, 'quick_select_layer', None)) is not None:
         quick_select(content, state)
+      if not ordered and state.alert.size != AlertSize.FULL:
+        render_rear_fog(state, "large")
       self.alert.render(content, state.alert)
     finally:
       clip.end_scissor_mode()
@@ -457,7 +441,8 @@ class OnroadView:
       self.fonts.draw(label, FontRole.SEMI_BOLD, 29, 1390 + right_shift, 56,
                       curve_color)
     self._traffic_badge(state, 56 + 45 * int(label is not None))
-    render_glow(content, state, border_width=30, time_s=state.observed_ns / 1e9 if state.observed_ns else rl.get_time())
+    render_glow(content, state, border_width=30, time_s=state.observed_ns / 1e9 if state.observed_ns else rl.get_time(),
+                phase=getattr(self, "_curve_glow_phase", None))
     rl.draw_rectangle_lines_ex(frame, 30, rl.BLACK)
     rl.draw_rectangle_rounded_lines_ex(content, 0.12, 10, 30, edge)
     render_large_half_borders(state, state.observed_ns / 1e9 if state.observed_ns else rl.get_time(), content, int(height))
@@ -495,8 +480,6 @@ class OnroadView:
         self.background_layer(frame, state)
       ordered = bool(state.customization.get("widgetOrder", {}).get("compact"))
       if ordered:
-        self._prepare_compact_fade()
-        rl.draw_texture_ex(self._fade, rl.Vector2(0, 0), 0, 1, rl.WHITE)
         clip.end_scissor_mode()
         clip.begin_scissor_mode(0, 0, 536, 240)
         self._ordered_widgets(frame, state, driver_camera=driver_camera, stock_layer=stock_layer if use_stock else None)
@@ -509,8 +492,6 @@ class OnroadView:
         if pip_layer is not None and state.camera_available and not driver_camera and \
            state.appearance.camera_view != CameraViewChoice.NONE:
           pip_layer(frame, state)
-        self._prepare_compact_fade()
-        rl.draw_texture_ex(self._fade, rl.Vector2(0, 0), 0, 1, rl.WHITE)
         if state.alert.size == AlertSize.NONE and not driver_camera:
           self.compact_hud.render(state)
           if placement(state.customization, "compact", "torque_bar")["enabled"]:
@@ -527,10 +508,13 @@ class OnroadView:
       if not ordered:
         self._driving_mode(state)
         self._clock(state)
+        self._weather(state)
       if not ordered and not driver_camera and manual_slc_confirmation(self.fonts.profile, state):
         self._slc_actions(state)
       signals = state.border_signals
       direction = (-1 if signals.left_blinker else 1 if signals.right_blinker else 0) if signals else 0
+      if not ordered and state.alert.size != AlertSize.FULL:
+        render_rear_fog(state, "compact")
       self.alert.render(frame, state.alert, signal_direction=direction)
     finally:
       clip.end_scissor_mode()
@@ -586,6 +570,3 @@ class OnroadView:
       self.steering_wheel.close()
     else:
       self.compact_hud.close()
-      if self._fade is not None and rl.is_window_ready():
-        rl.unload_texture(self._fade)
-      self._fade = None

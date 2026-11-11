@@ -55,13 +55,14 @@ export function driveSummary(feed) {
   const last = data.lastDrive
   const analysisStatus = () => ({ analysisLabel: "Incomplete recording" })
   const maximum = Math.max(1, ...data.week.days.map((day) => day.distanceMeters ?? 0))
-  const models = data.models.slice(0, 3)
+  const models = data.models
   const modelTotal = models.reduce((sum, model) => sum + (model.distanceMeters ?? 0), 0)
   const colors = ["#5ec8c8", "#8b6cc5", "#d4a060"]
+  const modelColor = (index) => colors[index] || `hsl(${(index * 137.508) % 360} 55% 65%)`
   let offset = 0
   const stops = models.map((model, index) => {
     const next = offset + (modelTotal > 0 ? (model.distanceMeters ?? 0) / modelTotal * 100 : 0)
-    const stop = `${colors[index]} ${offset}% ${next}%`
+    const stop = `${modelColor(index)} ${offset}% ${next}%`
     offset = next
     return stop
   })
@@ -86,7 +87,7 @@ export function driveSummary(feed) {
       duration: duration(drive.durationSeconds), engaged: percent(drive.engagedPercent), aol: percent(drive.aolPercent), model: shown(drive.model) })),
     records: data.records.map((record) => ({ id: record.id, label: record.label, display: recordDisplay(record, isMetric) })),
     models: models.map((model, index) => ({ name: model.name, distance: distance(model.distanceMeters, isMetric),
-      drives: model.drives, color: colors[index] })),
+      drives: model.drives, color: modelColor(index) })),
     modelStyle: modelTotal > 0 ? `background:conic-gradient(${stops.join(",")})` : "",
   }
 }
@@ -102,8 +103,15 @@ export function homeSummary(monitor, model, software) {
       cpu: measure(live?.cpuPercent, "%"),
       memory: measure(live?.memory?.percent, "%"),
       battery: measure(live?.batteryVoltage, " V", 1),
+      storageLabel: live?.deviceType === "tici" ? "Internal storage" : "Storage",
+      storageFree: live?.deviceType === "tici" ? measure(live?.storage?.freeGiB, " GiB", 1) : null,
       storage: live?.storage?.usedGiB != null && live?.storage?.totalGiB != null
         ? `${measure(live.storage.usedGiB, " GiB", 1)} / ${measure(live.storage.totalGiB, " GiB", 1)}` : "Unavailable",
+      recordingStorage: live?.deviceType === "tici" && live?.recordingStorage ? {
+        usage: live.recordingStorage.usedGiB != null && live.recordingStorage.totalGiB != null
+          ? `${measure(live.recordingStorage.usedGiB, " GiB", 1)} / ${measure(live.recordingStorage.totalGiB, " GiB", 1)}` : "Unavailable",
+        free: measure(live.recordingStorage.freeGiB, " GiB", 1),
+      } : null,
       observed: live ? new Date(live.sampledAt * 1000).toLocaleString(displayLocale()) : "Unavailable",
     },
     model: {
@@ -251,7 +259,8 @@ export const Home = {
             <template v-else><div class="gx-home__metrics"><div><strong>{{ summary.system.cpu }}</strong><span>CPU</span></div>
               <div><strong>{{ summary.system.memory }}</strong><span>Memory</span></div></div>
               <p>12 V battery: <strong>{{ summary.system.battery }}</strong></p>
-              <p>Storage: {{ summary.system.storage }}</p><small>Sampled {{ summary.system.observed }}</small></template>
+              <p>{{ summary.system.storageLabel }}: {{ summary.system.storage }}<span v-if="summary.system.storageFree !== null"> · {{ summary.system.storageFree }} free</span></p>
+              <p v-if="summary.system.recordingStorage">Recording drive: {{ summary.system.recordingStorage.usage }} · {{ summary.system.recordingStorage.free }} free</p><small>Sampled {{ summary.system.observed }}</small></template>
             <WeatherVitals :metric="drives.data?.isMetric === true" :mode="mode" :unauthorized="unauthorized" />
             <button type="button" class="gx-home__link" @click="go('/logs/monitor')">Open System Monitor <i class="bi bi-arrow-right"></i></button>
           </section>

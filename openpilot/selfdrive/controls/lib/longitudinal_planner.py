@@ -32,11 +32,13 @@ from openpilot.starpilot.longitudinal.ioniq6_start import eligible as ioniq6_lon
 from openpilot.starpilot.longitudinal.lane_change_gap import LaneChangeGap, project as project_lane_gap
 from openpilot.starpilot.longitudinal.experimental_release import ConditionalHandoff, ExperimentalRelease, project as project_release
 from openpilot.starpilot.longitudinal.force_stop import StopPlan
+from openpilot.starpilot.longitudinal.force_stop_braking import distance_target
 from openpilot.starpilot.longitudinal.follow_jerk import FollowJerk
 from openpilot.starpilot.longitudinal.lead_takeoff import LeadTakeoff, project as project_takeoff
 from openpilot.starpilot.longitudinal.lead_behavior import adjust as adjust_lead_behavior
 from openpilot.starpilot.longitudinal.hkg_vision_stop import owner_for as vision_stop_owner
 from openpilot.starpilot.car.ford.stopped_lead import owner_for as ford_stop_owner
+from openpilot.starpilot.car.volkswagen.stopped_lead import owner_for as vw_stop_owner
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import STOP_DISTANCE
 from openpilot.starpilot.longitudinal.lead_approach import LeadApproach, LeadApproachKey, project as project_approach
 from openpilot.starpilot.lateral.lane_change_preferences import LaneChangePolicy
@@ -132,7 +134,7 @@ class LongitudinalPlanner:
     self.lead_takeoff = LeadTakeoff()
     self.vehicle_far_follow = far_follow_owner(CP, dt)
     self.vision_stop_buffer = vision_stop_owner(CP)
-    self.ford_stop_approach = ford_stop_owner(CP, STOP_DISTANCE - .5)
+    self.ford_stop_approach = ford_stop_owner(CP, STOP_DISTANCE - .5) or vw_stop_owner(CP, STOP_DISTANCE - .5)
     self.preap_adaptive = preap_adaptive_owner(CP)
 
   def update(self, sm, *, cruise_ceiling: CruiseCeiling | None = None,
@@ -373,12 +375,11 @@ class LongitudinalPlanner:
       cruise_profile = replace(cruise_profile, cruise_brake_magnitude=global_magnitude)
     if sm['controlsState'].forceDecel:
       cruise_profile = None
-    elif (ceiling.effective_mps is not None or curve.effective_mps is not None) and cruise_profile is not None:
-      # An eligible lower ceiling must retain at least native approach
-      # braking even when the saved profile requests a softer cruise response.
+    elif curve.effective_mps is not None and cruise_profile is not None:
+      # Curve approach retains native braking when the saved cruise response is softer.
       cruise_profile = replace(cruise_profile, cruise_brake_magnitude=max(cruise_profile.cruise_brake_magnitude,
                                                                           abs(A_CRUISE_MIN)))
-    if ceiling.effective_mps is not None or curve.effective_mps is not None:
+    if curve.effective_mps is not None:
       global_floor = min(global_floor, A_CRUISE_MIN)
     if selected_acceleration is not None and cruise_profile is not None:
       # The selected curve owns acceleration; following/jerks retain their owner.
@@ -409,6 +410,9 @@ class LongitudinalPlanner:
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
                   (self.a_cruise, LongitudinalPlanSource.cruise, cruise_should_stop)]
+    if self.ioniq6_throttle_gate_enabled and self.force_stop_plan.forcing and self.force_stop_plan.obstacle_m is not None:
+      stop_target = distance_target(v_ego, sm['carState'].aEgo, self.force_stop_plan.obstacle_m, action_t)
+      candidates.append((stop_target, LongitudinalPlanSource.cruise, False))
     if sm['selfdriveState'].experimentalMode:
       candidates.append((output_a_target_e2e, LongitudinalPlanSource.e2e, output_should_stop_e2e))
 
@@ -510,5 +514,9 @@ class LongitudinalPlanner:
     hold.modelMonoTime = longitudinalPlan.modelMonoTime
     hold.driveStartMonoTime = self.plan_drive_id
     hold.forceStopHolding = bool(self.force_stop_plan.manual_hold)
+    hold.forceStopBraking = bool(self.ioniq6_throttle_gate_enabled and self.force_stop_plan.forcing and
+                                self.force_stop_plan.should_stop)
+    hold.forceStopEpisodeMonoTime = self.force_stop_plan.episode_ns
     pm.send('longitudinalPlan', plan_send)
     pm.send('starpilotLongitudinalPlan', companion)
+
