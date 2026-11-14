@@ -62,6 +62,7 @@ QUICK_TARGETS = (
   'openpilot/selfdrive/car/tests/test_bolt_cc_integration.py',
   'openpilot/selfdrive/car/tests/test_bolt_cruise_event.py',
   'openpilot/selfdrive/car/tests/test_carparams_first_publish.py',
+  'openpilot/selfdrive/car/tests/test_registered_jeep_discovery.py',
   'openpilot/selfdrive/car/tests/test_conditional_manual_event.py',
   'openpilot/selfdrive/car/tests/test_cruise_intervals.py',
   'openpilot/selfdrive/car/tests/test_cruise_speed.py',
