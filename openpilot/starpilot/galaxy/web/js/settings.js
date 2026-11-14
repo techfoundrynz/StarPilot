@@ -2,7 +2,7 @@ import { requestJson } from "./startup.js"
 import { GxDialog } from "./dialog.js"
 import { GxState } from "./state.js"
 import { connectionError } from "./polling.js"
-import { reactive, nextTick } from "../vendor/vue/vue.esm-browser.js"
+import { reactive, nextTick, defineAsyncComponent } from "../vendor/vue/vue.esm-browser.js"
 import { GalaxySettingRow, settingControl } from "./galaxy-setting-row.js"
 import { ReverseProxySettings } from "./reverse-proxy.js"
 import { OnroadLayoutPage } from "./onroad-layout.js"
@@ -12,19 +12,22 @@ import { CloudProviderPage } from "./cloud-provider.js"
 import { GxNotice } from "./notice.js"
 import { route } from "./route-state.js"
 
+const VehicleControlsPage = defineAsyncComponent(() => import("./vehicle-controls.js").then(module => module.VehicleControlsPage))
+
 const post = (fetcher, path, body, signal) => fetcher(path, {
   method: "POST", credentials: "same-origin", cache: "no-store", signal,
   headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
 })
 
 export const SETTINGS_SECTIONS = Object.freeze([
-  { id: "lateral", label: "Lateral (Steering)", icon: "bi-arrows-move", pages: ["aol", "lane_change", "torque", "lane", "vehicle"] },
+  { id: "lateral", label: "Lateral (Steering)", icon: "bi-arrows-move", pages: ["aol", "lane_change", "torque", "lane"] },
   { id: "longitudinal", label: "Longitudinal (Speed & Following)", icon: "bi-speedometer2", pages: ["profiles", "conditional", "curve", "slc", "personalities", "aggressive", "standard", "relaxed", "traffic"] },
   { id: "wheel", label: "Wheel Controls", icon: "bi-controller", pages: ["wheel"] },
   { id: "visual", label: "Visual (Display & UI)", icon: "bi-eye", pages: ["appearance", "ui_layout", "favorites", "pip"] },
   { id: "sounds", label: "Sounds & Alerts", icon: "bi-volume-up", pages: ["sounds"] },
   { id: "device", label: "Device & Data", icon: "bi-hdd", pages: ["power", "display", "data"] },
   { id: "localization", label: "Localization", icon: "bi-globe", pages: ["localization"] },
+  { id: "vehicle", label: "Vehicle", icon: "bi-car-front", pages: ["vehicle"] },
   { id: "developer", label: "Developer", icon: "bi-code-slash", pages: ["developer"] },
 ])
 
@@ -35,7 +38,7 @@ export const isPipCropRow = (row) => ["Visual camera crop editor", "Camera crop 
   /^Vehicle (left|right) crop/.test(row.label || "")
 
 const SECTION_LINKS = {
-  device: [{ label: "Parked Power", page: "power", value: "Adjust shutdown hours and battery-voltage cutoff" }, { label: "Display", page: "display", value: "Adjust screen brightness and display timing" }, { label: "Data Uploads", page: "data", value: "Choose mobile-data uploads and usage-statistics sharing" }],
+  device: [{ label: "Power and Cooling", page: "power", value: "Adjust parked shutdown limits and supported fan cooling" }, { label: "Display", page: "display", value: "Adjust screen brightness and display timing" }, { label: "Data Uploads", page: "data", value: "Choose mobile-data uploads and usage-statistics sharing" }],
   visual: [{ label: "Driving Screen Widgets, Colors & Layout", page: "ui_layout" }, { label: "Quick Select", page: "favorites" }, { label: "Blind Spot Camera and Preview", page: "pip" }],
 }
 
@@ -270,7 +273,7 @@ export class SettingsFeed {
 
 export const SettingsPage = {
   emits: ["nested"],
-  components: { GxDialog, GxState, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice },
+  components: { GxDialog, GxState, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice, VehicleControlsPage },
   props: {
     mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     initialPage: { type: String, default: "hub" }, title: { type: String, default: "Toggles" },
@@ -280,14 +283,15 @@ export const SettingsPage = {
     const navigation = route.view
     const navigationKey = `${props.initialPage}:${props.initialSection || ""}`
     const saved = navigation.settings?.key === navigationKey ? navigation.settings : null
-    const state = reactive({ status: "idle", data: null, pending: null, error: "", query: "", searchOpen: false, section: "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], developerOpen: props.initialSection === "developer", panelDirection: 1 })
+    const state = reactive({ status: "idle", data: null, pending: null, error: "", query: "", searchOpen: false, section: props.initialSection || "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], developerOpen: props.initialSection === "developer", panelDirection: 1 })
     if (saved) Object.assign(state, { section: saved.section, query: saved.query, searchOpen: saved.searchOpen, parents: saved.parents.slice(), developerOpen: saved.developerOpen })
     const feed = new SettingsFeed({ publish: (update) => Object.assign(state, update), unauthorized: props.unauthorized })
     return { state, feed, sections: SETTINGS_SECTIONS, navigation, navigationKey, restoredPage: saved?.page }
   },
   computed: {
     sentryStatus() { return sentryMonitorStatus(this.state.data, this.state.error) },
-    busy() { return settingsBusy(this.state) || !!this.state.testingSound },
+    busy() { return settingsBusy(this.state) || !!this.state.testingSound || !!this.$refs?.vehicleEditor?.busy },
+    vehicleSection() { return this.initialPage === "hub" && this.activeSection.id === "vehicle" },
     activeSection() {
       if (this.state.developerOpen) return this.sections.at(-1)
       const page = (this.state.data?.page || "hub").split("/")[0]
@@ -413,10 +417,12 @@ export const SettingsPage = {
     },
     requestRouteLeave(proceed) {
       if (this.busy || this.$refs.favoritesEditor?.busy || this.$refs.cloudProvider?.busy) return
-      if (this.state.layoutOpen) this.$refs.layoutEditor.requestLeave(proceed)
+      if (this.$refs.vehicleEditor) this.$refs.vehicleEditor.requestRouteLeave(proceed)
+      else if (this.state.layoutOpen) this.$refs.layoutEditor.requestLeave(proceed)
       else proceed()
     },
     navigateBack() {
+      if (this.$refs?.vehicleEditor?.navigateBack()) return true
       if (this.state.pending) { this.feed.cancel(); return true }
       if (this.busy) return true
       if (this.state.layoutOpen) { this.$refs.layoutEditor.requestLeave("back"); return true }
@@ -478,15 +484,17 @@ export const SettingsPage = {
       <GxState v-if="mode !== 'local'">Local settings are unavailable in preview.</GxState>
       <template v-else>
         <GxNotice v-if="state.data && state.data.vehicleIdentified === false" tone="info">Vehicle not identified yet. Turn on the car and wait for fingerprinting; vehicle-specific settings will then appear here.</GxNotice>
-        <CloudProviderPage ref="cloudProvider" v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
-        <ReverseProxySettings v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
         <GxState v-if="state.status === 'loading'" loading>Reading your device’s saved preferences…</GxState>
         <GxNotice tone="danger" v-else-if="state.status === 'unavailable' && !state.error">The device could not read these preferences. Reconnecting automatically…</GxNotice>
         <GxNotice tone="danger" v-if="state.error">{{ state.error }}
           </GxNotice>
-        <div v-if="!state.developerOpen || state.data?.page === 'developer'" class="gx-panel-stage" :style="{'--panel-direction': state.panelDirection}">
-          <Transition name="gx-panel">
-          <div v-if="state.data" :key="state.data.page + activeSection.id" class="gx-settings__body">
+        <div class="gx-panel-stage" :style="{'--panel-direction': state.panelDirection}">
+          <Transition name="gx-panel" @before-enter="$event.inert = false" @before-leave="$event.inert = true">
+          <div v-if="state.data || state.developerOpen || vehicleSection" :key="state.developerOpen ? 'developer' : vehicleSection ? 'vehicle' : state.data.page + activeSection.id" class="gx-settings__body">
+            <VehicleControlsPage ref="vehicleEditor" v-if="vehicleSection" :mode="mode" :unauthorized="unauthorized" />
+            <CloudProviderPage ref="cloudProvider" v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
+            <ReverseProxySettings v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
+            <template v-if="!vehicleSection && state.data && (!state.developerOpen || state.data.page === 'developer')">
             <div v-if="state.data.page === 'pip'" class="gx-settings__actions gx-actions">
               <button type="button" class="gx-btn gx-btn--tonal" @click="openCropEditor"><i class="bi bi-crop" aria-hidden="true"></i> Crop editor</button>
             </div>
@@ -507,6 +515,7 @@ export const SettingsPage = {
               <div v-if="!cardIndex && !visibleRows.length" class="gx-empty">No matching settings.</div>
             </section>
             <SoundPacks v-if="state.data.page === 'sounds'" :unauthorized="unauthorized" :busy="busy" @installed="refreshSoundChoices" />
+            </template>
           </div>
           </Transition>
         </div>

@@ -25,7 +25,9 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
-                                                                      source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False):
+                                                                      source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False,
+                                                                      high_angle_guard=False, main_on_brake=False, guard_brake_release=False,
+                                                                      stopped_feedback_gap=False, rearm_on_brake=0):
   angle_handoff = fixed_angle_handoff or vm_angle_handoff
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru') if firmware is None else firmware
   rows = []
@@ -40,6 +42,10 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
       expected_word = (4096 if aol else 0) | (512 if prefs.get('SubaruRedneckCruise') else 0) | (8 if prefs.get('SubaruSNG') else 0)
       assert cp.safetyConfigs[0].safetyParam == expected_word
       assert cp.autoResumeSng == bool(prefs.get('SubaruSNG'))
+    if rearm_on_brake:
+      params.put_bool('PauseLateralOnSignal', True, block=True)
+      params.put('PauseLateralSpeed', 100., block=True)
+      params.put('LateralResumeDelay', 0., block=True)
     sd, controls = SelfdriveD(CP=cp), Controls()
     stream = CompleteCan(ci)
     safety.init_tests()
@@ -71,10 +77,14 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
       pending_eps_event = None
       for elapsed, tick in enumerate(ticks):
         now = base + elapsed * 10_000_000 + (22_504_479 if deadline_gap and elapsed >= gap_tick else 0)
+        if stopped_feedback_gap and elapsed >= 131:
+          now += 3_919_864
         cruise = not main_only and (30 <= tick < 110 or tick >= 410)
-        brake = 90 <= tick < 110 or eps_brake_join and 225 <= tick < 270
+        brake = (stopped_feedback_gap and 125 <= tick < 135 or 90 <= tick < 110 or eps_brake_join and 225 <= tick < 270 or
+                 main_on_brake and 30 <= tick < 55 or guard_brake_release and 225 <= tick < 245 or
+                 rearm_on_brake and 345 <= tick < 365)
         reverse = 150 <= tick < 185
-        temporary = 225 <= tick < 260
+        temporary = not guard_brake_release and 225 <= tick < 260
         main = not 310 <= tick < 350 and (tick >= 30 or not main_only)
         stopped = stop_resume and (125 <= tick < 135 if hard_stop_native_first or host_first_stop else 185 <= tick < 195)
         first_resume = 145 <= tick < 150 if hard_stop_native_first or host_first_stop else 125 <= tick < 145
@@ -95,6 +105,24 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'ES_DashStatus': {'Cruise_On': int(main), 'Cruise_Set_Speed': 100},
           'Transmission': {'Gear': 3 if reverse else 121},
         }
+        if rearm_on_brake in (1, 2):
+          values['Dashlights'] = {'LEFT_BLINKER': int(rearm_on_brake == 1 and 340 <= tick < 355),
+                                 'RIGHT_BLINKER': int(rearm_on_brake == 2 and 340 <= tick < 355)}
+        if high_angle_guard:
+          values['Brake_Pedal'] = {'Speed': 8}
+          values['Brake_Pressure_L_R'] = {'Steering_Angle': 101 if 110 <= tick < 120 else 83 if 120 <= tick < 125 else 0}
+          if 110 <= tick < 125:
+            values['Steering_Torque'].update(Steering_Angle=100, Steer_Torque_Sensor=59)
+            values['Wheel_Speeds'] = dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 8)
+        if main_on_brake and 30 <= tick < 60:
+          values['Steering_Torque'].update(Steering_Angle=33, Steer_Torque_Sensor=106)
+          values['Wheel_Speeds'] = dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 8)
+        if guard_brake_release:
+          values['Brake_Pedal'] = {'Speed': 8}
+          values['Brake_Pressure_L_R'] = {'Steering_Angle': 101 if 225 <= tick < 260 else 0}
+          if 225 <= tick < 260:
+            values['Steering_Torque'].update(Steering_Angle=100, Steer_Torque_Sensor=94)
+            values['Wheel_Speeds'] = dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 8)
         incoming = stream.frames(values, tick=tick)
         if source_outage:
           pending_host_can.append((now, incoming))
@@ -127,6 +155,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           pending_eps_event = None
         for service in ('onroadEvents', 'selfdriveState', 'aolAxisState'):
           if service not in driven_new or service not in card.sm.data:
+            continue
+          if stopped_feedback_gap and service == 'aolAxisState' and 130 <= elapsed < 133:
             continue
           if eps_brake_join and service == 'onroadEvents' and tick == 236:
             # Deliver the existing event one Card cycle after its axis update.
@@ -273,6 +303,20 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'events': [str(e.name) for e in driven['onroadEvents'].onroadEvents],
         }
         rows.append(row)
+        if high_angle_guard and 115 <= tick < 120:
+          assert cs.steerFaultTemporary and ci.CS.high_angle_cut, ('HIGH_ANGLE_GUARD_NOT_WITHDRAWN', row)
+          assert not row['lat'] and row['cardLatch'] and row['armed'] and row['permission'] == 0, ('HIGH_ANGLE_GUARD_NOT_WITHDRAWN', row)
+          assert all(not command['request'] and command['output'] == 0 and command['nativeAccepted'] for command in row['steering']), row
+        if high_angle_guard and 140 <= tick < 145:
+          assert not cs.steerFaultTemporary and not ci.CS.high_angle_cut and row['lat'] and row['cardLatch'] and row['permission'] == 1, row
+        if main_on_brake and 40 <= tick < 55:
+          assert row['cardLatch'] and row['armed'] and not row['lat'] and row['permission'] == 0, ('SUBARU_BRAKED_MAIN_INTENT_LOST', row)
+        if guard_brake_release and 245 <= tick < 260:
+          assert row['cardLatch'] and row['armed'] and not row['lat'] and row['permission'] == 0, ('SUBARU_GUARD_BRAKE_RELEASE_LOST', row)
+        if stopped_feedback_gap and 131 <= elapsed < 133:
+          assert card.aol_card_intent.allowed_latch, ('SUBARU_STOPPED_FEEDBACK_GAP_CLEARED', row)
+          assert not command.latActive and not command.longActive and row['permission'] == 0, row
+          assert row['fault'] == 'none' and 'controlsMismatch' not in row['events'], row
         if stopped:
           assert not row['lat'] and row['cardLatch'] and row['permission'] == 0 and row['fault'] == 'none', ('SUBARU_STOP_LOST_ARMED_INTENT', row)
         if source_outage and 78 <= tick < 81:
@@ -294,7 +338,13 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         main_rearm = aol and candidate in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_OUTBACK_2023)
         if 330 <= tick < (350 if main_rearm else 400):
           assert not command.latActive and not bool(intent and intent.allowedLatch), row
-        if main_rearm and 375 <= tick < 400:
+        if rearm_on_brake and 355 <= tick < 365:
+          assert row['cardLatch'] and row['armed'] and not row['lat'] and row['permission'] == 0, ('SUBARU_REPEAT_BRAKED_MAIN_LOST', row)
+        if rearm_on_brake in (1, 2) and 355 <= tick < 400:
+          assert cs.leftBlinker or cs.rightBlinker, row
+          assert row['cardLatch'] and row['armed'] and not row['lat'] and not row['long'], ('SUBARU_SIGNAL_PAUSE_LOST_INTENT', row)
+          assert all(not frame['request'] and frame['output'] == 0 and frame['nativeAccepted'] for frame in row['steering']), row
+        if main_rearm and 375 <= tick < 400 and rearm_on_brake not in (1, 2):
           assert command.latActive and row['cardLatch'] and row['permission'] == 1 and not row['controls'], row
         if tick >= 440:
           assert command.latActive and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol), row
@@ -454,3 +504,31 @@ def test_actual_crawl_lateral_only_tracks_small_targets(subaru_native_pair, tmp_
 def test_actual_eps_brake_event_join_preserves_armed_intent(subaru_native_pair, tmp_path):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, eps_brake_join=True)
+
+
+def test_actual_impreza_high_angle_refusal_guard(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, high_angle_guard=True)
+
+
+def test_actual_impreza_main_while_braking_waits_for_native_grant(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, main_on_brake=True)
+
+
+def test_actual_impreza_guard_brake_release_keeps_intent(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, guard_brake_release=True)
+
+
+
+def test_actual_stopped_feedback_gap_retains_only_armed_intent(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True,
+    stop_resume=True, hard_stop_native_first=True, stopped_feedback_gap=True)
+
+
+@pytest.mark.parametrize('signal', (1, 2, 3))
+def test_actual_repeat_main_with_brake_and_signal_pause(subaru_native_pair, tmp_path, signal):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, rearm_on_brake=signal)

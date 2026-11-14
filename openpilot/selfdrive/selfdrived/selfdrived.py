@@ -1138,8 +1138,16 @@ class SelfdriveD:
       clear_event_types.add(ET.NO_ENTRY)
 
     pers = LONGITUDINAL_PERSONALITY_MAP[self.personality]
+    soft_disable_time = self.state_machine.soft_disable_timer
+    if (getattr(self, 'aol_ordinary_source_pause', False) and self.enabled and
+        self.state_machine.state in (log.SelfdriveState.OpenpilotState.enabled, log.SelfdriveState.OpenpilotState.overriding) and
+        availability_only(self.events.to_msg())):
+      # A publication-time fault precedes the next ordinary timer transition.
+      # Present its initial soft warning without ticking or resetting that timer.
+      from openpilot.selfdrive.selfdrived.state import SOFT_DISABLE_TIME
+      soft_disable_time = int(SOFT_DISABLE_TIME / DT_CTRL)
     alerts = self.events.create_alerts(self.state_machine.current_alert_types, [self.CP, CS, self.sm, self.is_metric,
-                                                                                self.state_machine.soft_disable_timer, pers])
+                                                                                soft_disable_time, pers])
     if getattr(self, 'aol_lag_takeover_alert', False) and not self.events.contains(ET.IMMEDIATE_DISABLE):
       lag = Events(self.events.event_rules)
       lag.add(EventName.selfdrivedLagging)
@@ -1168,6 +1176,18 @@ class SelfdriveD:
       alerts.append(blindspot)
     else:
       self.AM.alerts.pop(BSM_ALERT, None)
+    from openpilot.starpilot.audio.departure_alert import ALERT_TYPES as DEPARTURE_ALERTS, DepartureAlertDelivery
+    if not hasattr(self, 'departure_alert_delivery'):
+      self.departure_alert_delivery = DepartureAlertDelivery()
+    departure = self.departure_alert_delivery.sample(
+      self.sm, CS, enabled=getattr(self, 'departure_alert_settings', (False, False)), now_ns=now_ns,
+      car_ns=getattr(self, 'aol_car_state_log_ns', 0),
+      car_valid=getattr(self, 'conditional_car_state_valid', False))
+    active_departure = {alert.alert_type for alert in departure}
+    for alert_type in DEPARTURE_ALERTS:
+      if alert_type not in active_departure:
+        self.AM.alerts.pop(alert_type, None)
+    alerts.extend(departure)
     switchback = bool(self.switchback_capable and self.sm.seen['slcState'] and self.sm.alive['slcState'] and
                       self.sm.valid['slcState'] and self.sm['carControl'].latActive and
                       self.switchback_status.sample_state(self.sm['slcState'], drive_id=drive, now_ns=now_ns,
@@ -1211,7 +1231,7 @@ class SelfdriveD:
       self.sm, self.CP, CS, enabled=self.enabled, car_ns=getattr(self, 'aol_car_state_log_ns', 0),
       car_valid=getattr(self, 'conditional_car_state_valid', False), now_ns=time.monotonic_ns()) and ET.WARNING in self.state_machine.current_alert_types
     if holding:
-      alert = Alert("Force Stop Holding", "Press RES or accelerator to proceed", log.SelfdriveState.AlertStatus.normal,
+      alert = Alert("Enhanced Stop", "Press RES or accelerator to proceed", log.SelfdriveState.AlertStatus.normal,
                     log.SelfdriveState.AlertSize.mid, AlertPriority.LOW, car.CarControl.HUDControl.VisualAlert.none,
                     log.SelfdriveState.AudibleAlert.none, 0.)
       alert.alert_type, alert.event_type = "forceStopHold/warning", FORCE_STOP_HOLD
@@ -1248,6 +1268,16 @@ class SelfdriveD:
       # Saturation is already ignored during override; retire its held presentation too.
       alerts = [alert for alert in alerts if alert.alert_type != 'steerSaturated/warning']
       self.AM.alerts.pop('steerSaturated/warning', None)
+    from openpilot.starpilot.audio.departure_alert import protect_safety_alerts
+    retained = ()
+    if departure:
+      retained = tuple(entry.alert for entry in self.AM.alerts.values()
+                       if entry.alert is not None and entry.active(self.sm.frame) and entry.alert.event_type not in clear_event_types)
+    alerts = protect_safety_alerts(alerts, retained=retained)
+    retained_types = {alert.alert_type for alert in alerts}
+    for alert_type in DEPARTURE_ALERTS:
+      if alert_type not in retained_types:
+        self.AM.alerts.pop(alert_type, None)
     self.AM.add_many(self.sm.frame, alerts)
     self.AM.process_alerts(self.sm.frame, clear_event_types)
     from openpilot.starpilot.audio.availability_warning import AvailabilityWarningDelivery
@@ -1487,6 +1517,12 @@ class SelfdriveD:
       # An already-off PCM is not a new cruise cancellation. Only a fresh,
       # independently checked LAT source may replace the expired LAT-only proof.
       user_disable = any(event.userDisable and event.name != EventName.pcmDisable for event in self.events.to_msg())
+    if user_disable and fresh_successor and self.CP.brand == 'hyundai':
+      from openpilot.starpilot.car.hyundai.aol import physical_cancel_lateral_allowed
+      native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
+      if physical_cancel_lateral_allowed(self.CP, CS, intent, native, settings=self.aol_settings,
+          previous=decision, source_ns=source_ns, now_ns=now_ns, axis_session_id=self.aol_session_id):
+        user_disable = any(event.userDisable and event.name != EventName.buttonCancel for event in self.events.to_msg())
     if user_disable and fresh_successor and self.ford_source_deadline_supported():
       from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed
       native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
@@ -1784,12 +1820,15 @@ class SelfdriveD:
     from openpilot.starpilot.car.gm.aol import physical_cancel_lateral_allowed, stock_ascm_independent_lateral, independent_lateral_below_engage
     from openpilot.starpilot.car.hyundai.aol import physical_cancel_lateral_allowed as hkg_cancel_lateral_allowed
     from openpilot.starpilot.car.mazda.aol import physical_cancel_lateral_allowed as mazda_cancel_lateral_allowed
+    from openpilot.starpilot.car.honda.aol import physical_cancel_lateral_allowed as honda_cancel_lateral_allowed
     from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed as ford_cancel_lateral_allowed
     from openpilot.starpilot.car.subaru.aol import sng_standstill_lateral_inhibit
     from openpilot.starpilot.car.volkswagen.aol import (lateral_output_inhibited as volkswagen_lateral_output_inhibited,
-                                                         below_engage_lateral_allowed as volkswagen_below_engage_lateral_allowed)
+                                                         below_engage_lateral_allowed as volkswagen_below_engage_lateral_allowed,
+                                                         physical_cancel_lateral_allowed as volkswagen_cancel_lateral_allowed)
     from openpilot.starpilot.aol.dm import lateral_event_context
     from openpilot.starpilot.car.toyota.legacy_lateral import below_engage_lateral_allowed as toyota_below_engage_lateral_allowed
+    from openpilot.starpilot.car.hyundai.aol import raw_longitudinal_withdrawal
     retained_dm_lateral, lateral_events = lateral_event_context(self, CS, intent, native, now_ns, ordinary_lag)
     reverse_pause = known_reverse_pause(CS, getattr(self, 'car_state_samples', ()))
     pause_brake_mps = self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0
@@ -1797,6 +1836,7 @@ class SelfdriveD:
       lateral_events = [event for event in lateral_events if event not in (EventName.wrongGear, EventName.reverseGear)]
     return decide_axes(
       standard_lateral=self.active, standard_longitudinal=bool(self.enabled and self.CP.openpilotLongitudinalControl and
+        not raw_longitudinal_withdrawal(self.CP, CS, self.sm, native, session=self.aol_session_id, now_ns=now_ns) and
         not any(event in LONGITUDINAL_ONLY_EVENTS for event in self.events.names) and
         not any(sample.seatbeltUnlatched or sample.doorOpen for sample, _ in getattr(self, 'car_state_samples', ()))),
       intent=intent, native=native, car_state=CS, initialized=self.initialized,
@@ -1815,7 +1855,15 @@ class SelfdriveD:
                                settings=self.aol_settings, previous=getattr(self, 'aol_axis_decision', None),
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
                                axis_session_id=getattr(self, 'aol_session_id', '')) or
+                             honda_cancel_lateral_allowed(self.CP, CS, intent, native,
+                               settings=self.aol_settings, previous=getattr(self, 'aol_axis_decision', None),
+                               source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
+                               axis_session_id=getattr(self, 'aol_session_id', '')) or
                              mazda_cancel_lateral_allowed(self.CP, CS, intent, native,
+                               settings=self.aol_settings, previous=getattr(self, 'aol_axis_decision', None),
+                               source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
+                               axis_session_id=getattr(self, 'aol_session_id', '')) or
+                             volkswagen_cancel_lateral_allowed(self.CP, CS, intent, native,
                                settings=self.aol_settings, previous=getattr(self, 'aol_axis_decision', None),
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
                                axis_session_id=getattr(self, 'aol_session_id', '')),
@@ -1885,41 +1933,52 @@ class SelfdriveD:
       ford_native_accepts_cp(self.CP, int(car.CarParams.SafetyModel.ford), self.CP.safetyConfigs[-1].safetyParam))
     # Driver steering does not invalidate a still-current native LAT grant.
     from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+    from opendbc.car.volkswagen.pq_aol import qualified as volkswagen_pq_qualified
     from openpilot.starpilot.car.toyota.aol import qualified as toyota_aol_qualified
     toyota_longitudinal = bool(self.CP.brand == 'toyota' and self.CP.openpilotLongitudinalControl and
                               toyota_aol_qualified(self.CP, marked_only=True))
     steering_override_allowed = (ordinary_ford or toyota_longitudinal or self.CP.brand == 'hyundai' or
-                                 volkswagen_long_qualified(self.CP, marked_only=True))
+                                 volkswagen_long_qualified(self.CP, marked_only=True) or
+                                 self.CP.openpilotLongitudinalControl and volkswagen_pq_qualified(self.CP, marked_only=True))
+    # Paused Ford steering has no LAT grant to retain. The same ordinary
+    # mismatch owner can observe denied LONG with both outputs inactive.
+    ford_long_only = bool(ordinary_ford and not previous.lateral_active and
+      not requested.desired_lateral and intent is not None and intent.pauseLateral and
+      native is not None and not native.requestedLateral and not native.lateralAllowed)
     proof = getattr(self, 'aol_published_input_proof', None)
     prior = getattr(self, 'aol_published_input_native', None)
     anchor = getattr(self, 'aol_ordinary_source_anchor', None)
     companion = getattr(self, 'aol_intent_companion', None)
     if (not self.enabled or not self.active or not self.CP.openpilotLongitudinalControl or
-        not previous.lateral_active or not previous.longitudinal_active or
-        not requested.desired_lateral or not requested.desired_longitudinal or not source_current or
+        not (previous.lateral_active or ford_long_only) or not previous.longitudinal_active or
+        not (requested.desired_lateral or ford_long_only) or not requested.desired_longitudinal or not source_current or
         not self.conditional_car_state_valid or not 0 < self.aol_car_state_log_ns <= now_ns or
         now_ns - self.aol_car_state_log_ns > INTENT_MAX_AGE_NS or
         native is None or prior is None or proof is None or anchor is None or
         anchor[3] != cp_identity(self.CP) or proof[0] != self.aol_session_id or
-        not proof[8] or not proof[9] or not 0 < proof[2] <= now_ns or
+        not (proof[8] or ford_long_only) or not proof[9] or not 0 < proof[2] <= now_ns or
         now_ns > proof[3] and not (ordinary_ford and proof[1] < self.aol_car_state_log_ns and
           intent is not None and intent.allowedLatch and intent.lateralArmed and not intent.pauseLateral) or
         intent is None or companion is None or proof[4] != intent.producerSessionId or
         proof[5] != companion.integrity_epoch or not ((intent.allowedLatch and intent.lateralArmed) or ordinary_ford) or
-        not native.requestedLateral or not native.lateralAllowed or
+        not ford_long_only and (not native.requestedLateral or not native.lateralAllowed) or
         not native.requestedLongitudinal or native.longitudinalAllowed or not native.pandaInventory or
         CS.brakePressed or CS.regenBraking or CS.gasPressed or CS.steeringPressed and not steering_override_allowed or
         any(self.events.contains(kind) for kind in (ET.IMMEDIATE_DISABLE, ET.SOFT_DISABLE, ET.USER_DISABLE,
                                                   ET.OVERRIDE_LONGITUDINAL)) or
         not steering_override_allowed and self.events.contains(ET.OVERRIDE_LATERAL)):
       return False
+    from openpilot.starpilot.aol.transport_pause import _healthy_transport_native
+    health = (_healthy_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns,
+      require_longitudinal=False) if ford_long_only else
+      independent_lateral_health(self.sm, self.CP, CS, self.aol_session_id, now_ns))
     def identity(state):
       return (state.axisSessionId, state.pandaSerial, state.safetyModel, state.safetyParam,
               tuple((slot.slotIndex, slot.hardwareSerial, slot.safetyModel, slot.safetyParam,
                      slot.alternativeExperience) for slot in state.pandaInventory))
     if (identity(prior) != identity(native) or
         not 0 < prior.observedMonoTime <= native.observedMonoTime <= now_ns <= prior.validUntilMonoTime or
-        independent_lateral_health(self.sm, self.CP, CS, self.aol_session_id, now_ns) != native):
+        health != native):
       return False
     owners = [index for index, config in enumerate(self.CP.safetyConfigs)
               if str(config.safetyModel) not in ('silent', 'noOutput')]
@@ -2304,6 +2363,7 @@ class SelfdriveD:
       self.radar_recovery_enabled = self.params.get_bool("RadarRecoveryAlert")
       self.blindspot_alert_settings = (self.params.get_bool("LoudBlindspotAlert"),
                                       self.params.get_bool("LoudBlindspotAlertWhenDisengaged"))
+      self.departure_alert_settings = (self.params.get_bool("GreenLightAlert"), self.params.get_bool("LeadDepartingAlert"))
       self.nostalgia_enabled = nostalgia_saved_enabled(self.params)
       self.refresh_saved_driving_mode(time.monotonic_ns())
       self.personality = self.params.get("LongitudinalPersonality", return_default=True)

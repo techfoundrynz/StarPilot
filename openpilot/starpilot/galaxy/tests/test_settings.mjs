@@ -193,7 +193,7 @@ await conditional.reply(0, { ...lane, page: "hub", rows: [{ label: "Conditional 
   value: "Development saved settings", available: true, action: false }] })
 conditional.feed.load("conditional")
 assert.equal(conditional.requests[1].url, "./api/settings/pages/conditional")
-await conditional.reply(1, { ...lane, page: "conditional", rows: [{ ...lane.rows[0], label: "Saved driving mode",
+await conditional.reply(1, { ...lane, page: "conditional", rows: [{ ...lane.rows[0], label: "Driving Mode",
   value: "Stock", choices: ["Stock", "Conditional Experimental", "Conditional Chill"] }] })
 conditional.feed.preview(0, 1)
 await conditional.reply(2, { intent: "mode-once", question: "Save for a later drive?", proposed: "Conditional Experimental" })
@@ -461,12 +461,12 @@ const vehicleHub = {
   ] } },
 }
 const vehicleLinks = SettingsPage.computed.visibleRows.call(vehicleHub)
-assert.deepEqual(vehicleLinks.map(entry => entry.row.page), ["aol", "vehicle"])
-assert.equal(vehicleLinks[1].index, 1, "navigation must retain the server row index")
+assert.deepEqual(vehicleLinks.map(entry => entry.row.page), ["aol"])
+assert.equal(vehicleLinks[0].index, 0, "navigation must retain the server row index")
 const vehicleSection = SettingsPage.computed.activeSection.call({
   sections: SETTINGS_SECTIONS, state: { developerOpen: false, data: { page: "vehicle" } },
 })
-assert.equal(vehicleSection.id, "lateral", "a saved Vehicle Settings page must map back to its section")
+assert.equal(vehicleSection.id, "vehicle", "Vehicle Settings belongs to the dedicated Toggles tab")
 const brakeRows = SettingsPage.computed.visibleRows.call({
   initialPage: "hub", activeSection: vehicleSection,
   state: { query: "", data: { page: "vehicle", rows: [

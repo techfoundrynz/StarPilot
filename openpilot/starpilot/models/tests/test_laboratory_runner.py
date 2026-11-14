@@ -36,6 +36,48 @@ class TestLaboratoryFrame(unittest.TestCase):
     return pair.run_frame(*frame_inputs(pair.lateral), log.ModelDataV2.Action(), .2, .2, 20.,
                           long_smooth_seconds=0., **kwargs)
 
+  def test_actual_modeld_turn_capability_supports_pairs_before_first_frame(self):
+    import ast
+    from types import SimpleNamespace
+    source = Path(__file__).resolve().parents[3] / "selfdrive/modeld/modeld.py"
+    main = next(node for node in ast.parse(source.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    assignments: list[ast.stmt] = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and
+                   any(isinstance(target, ast.Name) and target.id in ("turn_models", "turn_supported") for target in node.targets)]
+    caller = compile(ast.fix_missing_locations(ast.Module(body=assignments, type_ignores=[])), str(source), "exec")
+    def supported(model):
+      scope = {"model": model, "LaboratoryPair": LaboratoryPair}
+      exec(caller, scope)
+      return scope["turn_supported"]
+    pair = make_pair()
+    self.assertTrue(supported(pair))
+    self.assertTrue(supported(pair.lateral))
+    self.run_frame(pair)
+    for role in (pair.lateral, pair.longitudinal):
+      original = role.npy["desire"]
+      role.npy["desire"] = np.zeros((1, 5), dtype=np.float32)
+      self.assertFalse(supported(pair))
+      role.npy["desire"] = original
+    self.assertFalse(supported(SimpleNamespace(npy={})))
+
+  def test_actual_modeld_camera_mapping_accepts_both_pair_inputs(self):
+    import ast
+    source = Path(__file__).resolve().parents[3] / "selfdrive/modeld/modeld.py"
+    main = next(node for node in ast.parse(source.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    assignments: list[ast.stmt] = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and
+                   any(isinstance(target, ast.Name) and target.id in ("bufs", "transforms") for target in node.targets)]
+    caller = compile(ast.fix_missing_locations(ast.Module(body=assignments, type_ignores=[])), str(source), "exec")
+    pair = make_pair()
+    self.assertEqual(pair.vision_input_names, pair.lateral.vision_input_names)
+    self.assertEqual(pair.vision_input_names, pair.longitudinal.vision_input_names)
+    frames, transforms, inputs = frame_inputs(pair.lateral)
+    scope = {"model": pair, "buf_main": frames["img"], "buf_extra": frames["big_img"],
+             "model_transform_main": transforms["img"], "model_transform_extra": transforms["big_img"]}
+    exec(caller, scope)
+    self.assertIs(scope["bufs"]["img"], frames["img"])
+    self.assertIs(scope["bufs"]["big_img"], frames["big_img"])
+    output = pair.run(scope["bufs"], scope["transforms"], inputs)
+    self.assertIn("plan", output)
+
   def test_sequential_frame_one_warp_independent_actions_and_current_frame_pose(self):
     pair = make_pair()
     callback = Mock()

@@ -7,6 +7,13 @@ from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HEL
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
 DESCRIPTIONS = {
+  'GreenLightAlert': 'Chimes once when the model’s traffic-light stop prediction clears while you remain stopped.',
+  'LeadDepartingAlert': 'Chimes once when the tracked vehicle ahead starts moving while you remain stopped.',
+  'DriveModeProfiles': 'Matches acceleration and deceleration profiles to the vehicle’s Eco, Normal or Sport drive mode.',
+  'DriveModeAcceleration': 'Matches the acceleration profile to the vehicle’s drive mode.',
+  'DriveModeDeceleration': 'Matches the deceleration profile to the vehicle’s drive mode.',
+  'AggressiveCoolingEnabled': 'Uses a stronger fan curve on supported devices to reduce temperature at the cost of fan noise.',
+  'HighwaySmoothingLevel': 'Reduces small steering corrections on highways above about 40 mph. 0% is off; higher values add more smoothing.',
   'FordRearFogIndicator': 'Shows a movable amber telltale while the Ford rear fog light is on, using read-only vehicle status.',
   'ShowPet': 'Shows your selected animated companion in the driving view.',
   'PetStore': 'Opens the on-device pet catalog to download, select, or remove companions while parked.',
@@ -15,8 +22,8 @@ DESCRIPTIONS = {
   'IsMetric': 'On displays speed and distance in kilometers; Off uses miles. Saved speed-limit offsets keep their physical values.',
   'IsRhdDetected': 'Sets the initial steering-wheel side used by driver monitoring. Applies next drive; automatic side detection continues.',
   'lane_change:turn_signal_guidance': 'Uses your turn signal to help the model choose a turning path at intersections.',
-  'AlphaLongitudinalEnabled': ('Requests StarPilot speed control instead of factory ACC. May disable Automatic Emergency Braking. ' +
-                              'Applies after the next startup; exact vehicle takeover checks remain required.'),
+  'AlphaLongitudinalEnabled': ('Let StarPilot control acceleration and braking instead of factory ACC. ' +
+                              'Takes effect next drive. May disable factory Automatic Emergency Braking.'),
   'lane_change:enabled': 'Enables lane-change assistance after you signal. With Automatic Lane Changes off, give the wheel a nudge to begin.',
   'lane_change:pace': 'Sets how quickly steering moves into the adjacent lane. Higher values change lanes more quickly; lower values make steering gentler.',
   'lane_change:speed': 'Sets the lowest speed at which lane-change assistance can begin.',
@@ -52,7 +59,7 @@ DESCRIPTIONS = {
   'CustomCruise': 'Sets how much a short cruise-button press changes the set speed.',
   'CustomCruiseLong': 'Sets how much holding a cruise button changes the set speed.',
   'ReverseCruise': 'Swaps the Toyota short-press and held-press cruise-speed increments.',
-  'ForceStops': 'Commits to stops detected by the driving model. Press the accelerator to continue.',
+  'ForceStops': 'Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue.',
   'ForceStopDistanceOffset': 'Moves the planned stopping point. Positive values stop farther forward; negative values stop earlier.',
   'LeadApproachBuffer': 'Gradually adds following distance when approaching a slower or braking lead vehicle.',
   'ExperimentalSpeedNudge': ('Gently recovers toward set speed when Experimental mode hesitates on a clear road. ' +

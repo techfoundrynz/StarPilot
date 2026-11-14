@@ -11,6 +11,8 @@ from typing import Any
 
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
+from openpilot.common.swaglog import cloudlog
+from openpilot.starpilot.flm.offroad_route import RouteInputError
 from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 from openpilot.starpilot.flm.training_report import report_path, READ_MAX_BYTES, _report_bounded
 
@@ -33,19 +35,23 @@ class StatusReport:
       self.next_ns = 0
 
   def analyzing(self, value):
-    # Historical findings survive a new fit. Never carry a saved/current map,
-    # enabled flag or application evidence forward from a previous report.
+    # Keep the last completed findings and saved values readable during a fit.
+    # They are historical display data, never current application or permission.
     fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
-              'recommendations', 'suggestions', 'suggestion_count')
+              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes')
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
-      previous['retained_decision'] = self.previous.get('reason', 'waiting_for_completed_drive')
+      previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
+      if self.previous.get('configuration_state') in ('ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'):
+        for key in ('configuration_state', 'configured_values', 'saved_adjustments', 'qualification_summary'):
+          if key in self.previous:
+            previous[key] = self.previous[key]
     self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous)})
 
   def restore(self, cache):
     """Recover historical display data, never a current tune or permission."""
     from types import SimpleNamespace
-    from openpilot.starpilot.flm.offroad_worker import _recorded_values, recorded_recommendations
+    from openpilot.starpilot.flm.offroad_worker import _recorded_values, recorded_recommendations, reported_checkpoint
     from openpilot.starpilot.flm.offroad_surface import route_values
 
     try:
@@ -53,6 +59,21 @@ class StatusReport:
       if latest is None or type(latest.get('result')) is not dict:
         return
       result = dict(latest['result'])
+      ordered = []
+      for index, row in enumerate(cache.checkpoints()):
+        value = row['result']
+        if 'assessment_sha256' not in value:
+          continue
+        document = cache.get(value['assessment_sha256'])
+        source = document['assessment']['route']
+        if (document['kind'] != 'completed_assessment' or source['route_id'] != value.get('completed_route')
+            or source['source_sha256'] != value.get('source_sha256')):
+          raise ValueError('Historical report source changed')
+        stamp = source.get('completed_wall_ns')
+        if type(stamp) is int and stamp > 0:
+          ordered.append((stamp, index, value))
+      if ordered:
+        result = dict(reported_checkpoint(cache, [value for _, _, value in sorted(ordered, key=lambda row: row[:2], reverse=True)]))
       if result.get('completed_route') and 'recommendations' not in result:
         saved = cache.get(result['assessment_sha256'])
         assessment = saved['assessment']
@@ -86,6 +107,8 @@ class StatusReport:
       return value if type(value) is int and 0 <= value < 2**63 else 0
 
     details: dict[str, Any] = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
+    if value.get('skipped_routes'):
+      details['Skipped recorded drives'] = [list(row) for row in value['skipped_routes'][:16]]
     for key, title in (('source_sha256', 'Original completed route hash'), ('assessment_sha256', 'Offroad assessment hash')):
       if key in value:
         details[title] = value[key]
@@ -95,10 +118,21 @@ class StatusReport:
     if 'completed_route' in value:
       details['Earlier analysis shown while updating'] = value.get('retained_analysis') is True
       details['Completed drive analyzed'] = value['completed_route']
+      details['Earlier completed drive reviewed'] = value.get('source_is_latest') is False
+      latest_recording = value.get('latest_recording')
+      if type(latest_recording) is dict:
+        details['Latest completed recording reviewed'] = latest_recording['completed_route']
+        details['Latest recording analysis decision'] = latest_recording['reason']
+        details['Findings retained from earlier drive'] = value['completed_route']
       details['Recorded steering observations'] = count('recorded_tracking')
+      reviewed, available = count('original_segments_reviewed'), count('original_segments_available')
+      if reviewed and available:
+        details['Recorded drive coverage'] = f'{reviewed} of {available} original recorded segments reviewed'
       details['Joined steering observations'] = count('joined_tracking')
       details['Retained control windows'] = count('qualified_whole_windows')
       details['Retained tracking windows'] = count('stable_qualified_whole_windows')
+      details['Drives in steering evidence history'] = count('evidence_drives')
+      details['Control windows in steering evidence history'] = count('evidence_windows')
       details['Original controller observations'] = count('original_control_metadata_rows')
       details['Controller eligibility refusals'] = count('controller_fit_refusals')
       details['Automatic configuration changed'] = bool(value.get('configuration_changed', False))
@@ -245,6 +279,28 @@ def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic):
     timeout = 20
 
 
+def run_parked_analysis(worker, report):
+  """Advance promptly only after an unreadable input was durably skipped."""
+  try:
+    report.set(worker.run_once())
+  except (ValueError, OSError, RuntimeError) as error:
+    if isinstance(error, RouteInputError):
+      cloudlog.warning(
+        'FLM skipped unreadable drive %s: %s; continuing with other drives',
+        error.route_id or 'last local recording', str(error)[:300],
+      )
+    else:
+      traceback.print_exc()
+    try:
+      failure = worker.record_failure(error)
+    except (ValueError, OSError, RuntimeError) as checkpoint_error:
+      traceback.print_exc()
+      failure = {'status': 'unavailable', 'reason': f'Could not record route failure: {checkpoint_error}'[:300]}
+    report.set(failure if failure is not None else {'status': 'unavailable', 'reason': str(error)[:300]})
+    return isinstance(error, RouteInputError) and type(failure) is dict and failure.get('route_skipped') is True
+  return False
+
+
 def main():
   from openpilot.common.hardware.hw import Paths
   from openpilot.starpilot.flm.offroad_cache import directory_for_params
@@ -288,7 +344,7 @@ def main():
           'recorded_tracking': a.recorded_tracking,
         }
       ),
-      on_recommendations=lambda value: report.set({**value, 'status': 'fitting', 'reason': 'checking_recorded_steering_recommendations'}),
+      on_recommendations=lambda value: report.analyzing({**value, 'reason': 'checking_recorded_steering_recommendations'}),
     )
     report.restore(worker.cache)
     next_analysis = 0.0
@@ -314,12 +370,8 @@ def main():
         )
       elif parked() and time.monotonic() >= next_analysis:
         next_analysis = time.monotonic() + 10.0
-        try:
-          report.set(worker.run_once())
-        except (ValueError, OSError, RuntimeError) as error:
-          traceback.print_exc()
-          failure = worker.record_failure(error)
-          report.set(failure if failure is not None else {'status': 'unavailable', 'reason': str(error)[:300]})
+        if run_parked_analysis(worker, report):
+          next_analysis = time.monotonic()
       report.publish()
       if not stopped:
         time.sleep(0.05)
@@ -334,3 +386,4 @@ def main():
 
 if __name__ == '__main__':
   main()
+
