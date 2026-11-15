@@ -6,6 +6,7 @@ import pytest
 
 from tools.ci import publish_device_release as release
 from tools.ci import update_upstream as updates
+from tools.ci.check_prebuilt_receipt import ReceiptError
 
 
 @pytest.fixture
@@ -224,3 +225,25 @@ def test_v7_release_receipt_matches_promoted_binary_inventory(repository):
   spec.loader.exec_module(owner)
   assert owner.valid_receipt(release.git, published)
   assert release.git('show', f'{published}:runtime') == 'tested binary'
+
+
+def test_v7_invalid_generated_receipt_cannot_publish_or_create_release_tag(repository):
+  owner_path = Path(__file__).resolve().parents[2] / 'openpilot/common/prebuilt_manifest.py'
+  destination = Path('openpilot/common/prebuilt_manifest.py')
+  destination.parent.mkdir(parents=True)
+  destination.write_text(owner_path.read_text() + '\n\ndef write_receipt(repo):\n' +
+                         '  (Path(repo) / RECEIPT).write_text(json.dumps({"schema_version": 1,\n' +
+                         '    "protected_inventory_sha256": "0" * 64}))\n')
+  release.git('add', str(destination))
+  release.git('commit', '-m', 'fixture with broken receipt generation')
+  source = release.git('rev-parse', 'HEAD')
+  release.git('push', 'origin', 'HEAD:refs/heads/custom')
+  previous = release.remote_head('refs/heads/StarPilot')
+
+  with pytest.raises(ReceiptError, match='no matching build receipt'):
+    release.publish(repository['tmp'], source)
+
+  assert release.remote_head('refs/heads/custom') == source
+  assert release.remote_head('refs/heads/StarPilot') == previous
+  assert not release.git('ls-remote', 'origin', f'refs/tags/device-{source}')
+  assert not release.git('tag', '--list', f'device-{source}')

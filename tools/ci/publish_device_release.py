@@ -8,8 +8,10 @@ import subprocess
 
 if __package__:
   from .apply_device_build import apply
+  from .check_prebuilt_receipt import check_receipt
 else:
   from apply_device_build import apply
+  from check_prebuilt_receipt import check_receipt
 
 
 def git(*args: str) -> str:
@@ -53,6 +55,8 @@ def publish(artifact: Path, source: str) -> str | None:
   # the parent, so device history always advances without merging old binaries.
   release = git('commit-tree', tree, '-p', previous, '-m',
                 f'Release device build for {source} [skip ci]\n\nSource-Commit: {source}')
+  if manifest.is_file():
+    check_receipt(Path.cwd(), release)
   if remote_head('refs/heads/custom') != source:
     print('Source advanced during publication; leaving the install branch unchanged.')
     return None
