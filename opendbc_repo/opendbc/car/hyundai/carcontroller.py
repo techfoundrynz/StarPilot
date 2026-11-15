@@ -162,6 +162,9 @@ class CarController(CarControllerBase):
     ioniq6_status = (self.ioniq6_longitudinal is not None and
                      int(CP.safetyConfigs[-1].safetyParam) in (0x8015, 0x8095, 0x8815, 0x8895))
     self.ioniq6_bsm_enabled = ioniq6_status
+    self.ioniq6_stock_aol_status = (CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and
+                                  not CP.openpilotLongitudinalControl and CP.pcmCruise and
+                                  int(CP.safetyConfigs[-1].safetyParam) in (0x0811, 0x0891))
     self.canfd_torque_aol_status = (qualified_canfd_stock_aol(CP) or qualified_canfd_long_aol(CP))
     self.canfd_dash_icons = CanFDDashIcons() if ioniq6_status or self.canfd_torque_aol_status else None
     self.classic_dash_icons = CanFDDashIcons() if classic_aol_dash_enabled(CP) else None
@@ -527,16 +530,19 @@ class CarController(CarControllerBase):
     else:
       steering_status_active = CC.enabled
       if ((self.CP.carFingerprint == CAR.KIA_CARNIVAL_2025 and self.CP.safetyConfigs[-1].safetyParam == 0x28B4) or
-          self.canfd_torque_aol_status or (self.ioniq6_longitudinal is not None and
+          self.ioniq6_stock_aol_status or self.canfd_torque_aol_status or (self.ioniq6_longitudinal is not None and
                                  self.CP.safetyConfigs[-1].safetyParam in (0x8815, 0x8895))):
         # AOL may steer while ordinary cruise engagement remains off.
         steering_status_active |= CC.latActive
       stock_source = getattr(CS, "stock_lfa_status", None)
       stock_lfa = stock_source.current(clock_boot_ns()) if stock_source is not None else None
       stock_faults = stock_source.last_fault() if stock_source is not None and stock_lfa is None else None
+      damping_source = getattr(CS, "stock_lkas_damping", None)
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
                                                             steering_status_active, apply_steer_req, apply_torque,
-                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults))
+                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults,
+                                                            stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
+                                                              if damping_source is not None else None)))
       if _projection is not None:
         _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
 

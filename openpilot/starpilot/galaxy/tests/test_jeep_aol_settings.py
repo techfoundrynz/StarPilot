@@ -11,6 +11,7 @@ from openpilot.starpilot.galaxy.settings import AuthorityContext, SettingsGatewa
 from openpilot.starpilot.galaxy.tests.settings_http_fixture import MutableContext
 from openpilot.starpilot.galaxy.vehicle_configuration import configuration_context
 from openpilot.starpilot.vehicle_selection import encode
+from openpilot.starpilot.aol.vehicle import policy_for
 import json
 
 
@@ -54,13 +55,20 @@ class TestJeepAolSettings(unittest.TestCase):
       self.assertTrue(gateway.confirm(intent['intent'], 'test-session', b'test-generation'))
       self.assertTrue(params.get_bool('AlwaysOnLateral'))
 
-  def test_missing_vehicle_explains_why_aol_is_disabled(self):
+  def test_missing_vehicle_can_save_aol_preference_without_runtime_authority(self):
     with tempfile.TemporaryDirectory() as directory:
       params = Params(directory)
       params.put_bool('AlwaysOnLateral', False, block=True)
       context = MutableContext(None)
       gateway = SettingsGateway(params, context)
-      row = next(row for row in gateway.page('aol', 'test-session', b'test-generation')['rows']
-                 if row['label'] == 'Enable Always On Lateral')
-      self.assertFalse(row['available'])
-      self.assertIn('Connect a supported vehicle', row['reason'])
+      page = gateway.page('aol', 'test-session', b'test-generation')
+      index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Enable Always On Lateral')
+      self.assertTrue(page['rows'][index]['available'])
+      self.assertFalse(policy_for(None).runtime_supported)
+      intent = gateway.preview(page['view'], index, 1, 'test-session', b'test-generation')
+      self.assertTrue(gateway.confirm(intent['intent'], 'test-session', b'test-generation'))
+      self.assertTrue(params.get_bool('AlwaysOnLateral'))
+      self.assertFalse(policy_for(None).runtime_supported)
+      page = gateway.page('aol', 'test-session', b'test-generation')
+      threshold = next(row for row in page['rows'] if row['label'] == 'Brake pause below')
+      self.assertFalse(threshold['available'])
