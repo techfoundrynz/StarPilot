@@ -48,7 +48,7 @@ class TestSettingsDefaults(TestCase):
     _, cp = ioniq_candidate()
     self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
     for label in ('Lat Accel', 'Friction'):
-      page = self.page('torque')
+      page = self.page('torque/developer')
       self.assertFalse(any('Reset to Default' in row['label'] for row in page['rows']))
       index = next(i for i, row in enumerate(page['rows']) if row['label'] == label)
       row = page['rows'][index]
@@ -56,10 +56,10 @@ class TestSettingsDefaults(TestCase):
       direction = -1 if previous >= row['maximum'] else 1
       intent = self.gateway.preview(page['view'], index, direction, self.session, self.generation)
       self.assertTrue(self.confirm(intent))
-      row, intent = self.reset('torque', label)
+      row, intent = self.reset('torque/developer', label)
       self.assertEqual(row['defaultValue'], 'Vehicle/learned')
       self.assertTrue(self.confirm(intent))
-      restored = next(row for row in self.page('torque')['rows'] if row['label'] == label)
+      restored = next(row for row in self.page('torque/developer')['rows'] if row['label'] == label)
       self.assertAlmostEqual(float(restored['value']), previous)
 
   def test_tuning_preparation_switch_saves_state_and_restores_preferences(self):
@@ -223,9 +223,9 @@ def slider(fixture):
   return page, index, page['rows'][index]
 
 
-def test_default_is_seventy_percent_with_off_still_at_left(gateway):
+def test_default_is_zero_percent_with_off_still_at_left(gateway):
   _, _, row = slider(gateway)
-  assert (row['value'], row['defaultValue'], row['minimum'], row['maximum'], row['unit']) == ('70', '70', 0, 100, '%')
+  assert (row['value'], row['defaultValue'], row['minimum'], row['maximum'], row['unit']) == ('0', '0', 0, 100, '%')
   assert row['step'] == 1 and row['resetAvailable']
   assert '0% is off' in row['reason'] and 'higher values add more smoothing' in row['reason']
   assert read_gain(gateway.params) == 1
@@ -242,7 +242,7 @@ def test_saved_effect_is_preserved_without_migration(gateway, saved, shown):
 
 
 @pytest.mark.parametrize(('strength', 'gain'), [(0, 1.), (50, .55), (100, .1)])
-def test_higher_strength_saves_more_smoothing_and_default_restores_seventy(gateway, strength, gain):
+def test_higher_strength_saves_more_smoothing_and_default_restores_zero(gateway, strength, gain):
   page, index, _ = slider(gateway)
   intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=strength)
   assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
@@ -251,8 +251,8 @@ def test_higher_strength_saves_more_smoothing_and_default_restores_seventy(gatew
   page, index, _ = slider(gateway)
   intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, reset_default=True)
   assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
-  assert read_gain(gateway.params) == pytest.approx(.37)
-  assert slider(gateway)[2]['value'] == '70'
+  assert read_gain(gateway.params) == pytest.approx(1.)
+  assert slider(gateway)[2]['value'] == '0'
 
 
 @pytest.mark.parametrize('value', [-1, 101, float('nan'), float('inf')])
@@ -274,16 +274,43 @@ def test_stale_source_cannot_overwrite_a_newer_setting(gateway):
   assert read_gain(gateway.params) == .3
 
 
-def test_enrollment_then_galaxy_opt_out_persists_across_startups(gateway):
+def test_enrollment_then_galaxy_custom_strength_persists_across_startups(gateway):
   from openpilot.starpilot.settings_retirement import retire_settings
-  assert gateway.params.get_default_value(KEY) == pytest.approx(3.7)
+  assert gateway.params.get_default_value(KEY) == pytest.approx(10.)
   retire_settings(gateway.params)
-  assert slider(gateway)[2]['value'] == '70'
-  assert read_gain(gateway.params) == pytest.approx(.37)
+  assert slider(gateway)[2]['value'] == '0'
+  assert read_gain(gateway.params) == pytest.approx(1.)
   page, index, _ = slider(gateway)
-  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=0)
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=70)
   assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
   for _ in range(3):
     retire_settings(gateway.params)
-    assert slider(gateway)[2]['value'] == '0'
-    assert read_gain(gateway.params) == 1.
+    assert slider(gateway)[2]['value'] == '70'
+    assert read_gain(gateway.params) == pytest.approx(.37)
+
+
+@pytest.mark.parametrize('saved_mode', [b'1', b'2', b'3'])
+def test_ford_all_controllers_expose_and_save_highway_smoothing(gateway, saved_mode):
+  from opendbc.car.car_helpers import interfaces
+  from opendbc.car.ford.values import CAR
+  from openpilot.starpilot.car.ford.controller_selection import KEY as FORD_MODE
+  from openpilot.starpilot.feature_capabilities import lateral_supported
+  from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
+  cp = interfaces[CAR.FORD_MUSTANG_MACH_E_MK1].get_non_essential_params(CAR.FORD_MUSTANG_MACH_E_MK1)
+  gateway.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+  gateway.params.put(FORD_MODE, int(saved_mode), block=True)
+  assert lateral_supported(cp) and not turn_assist_supported(cp)
+  page, index, row = slider(gateway)
+  assert row['available']
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=70)
+  assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
+  assert read_gain(gateway.params) == pytest.approx(.37)
+  assert read_saved(gateway.params, FORD_MODE, 16)[0] == saved_mode
+
+
+@pytest.mark.parametrize('flag', ['passive', 'dashcamOnly', 'notCar'])
+def test_smoothing_still_requires_real_controllable_vehicle(gateway, flag):
+  _, cp = ioniq_candidate()
+  setattr(cp, flag, True)
+  gateway.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+  assert not any(row['label'] == 'Highway Smoothing' for row in gateway.page('torque')['rows'])

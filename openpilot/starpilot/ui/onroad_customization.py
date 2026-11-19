@@ -195,6 +195,9 @@ MAP_OPACITY = (15, 100, 50)  # percent: min, max, default
 _nav_card = _widget("Turn-by-turn", NAV_CARD_WIDGET, *NAV_CARD_SIZE, 1230, 355)
 _nav_card["note"] = "The next maneuver while a route is active"
 PROFILES["large"]["widgets"][NAV_CARD_WIDGET] = _nav_card
+PROFILES["compact"]["widgets"][NAV_CARD_WIDGET] = {
+  **_widget("Turn-by-turn", NAV_CARD_WIDGET, 368, 142, 96, 16),
+  "note": "The next maneuver on the comma screen. StarPort has its own layout."}
 _nav_map = _widget("Map overlay", NAV_MAP_WIDGET, 560, 420, 1230, 625)
 _nav_map["default"].update(enabled=False, width=560, height=420, opacity=MAP_OPACITY[2])
 _nav_map["box"] = {"minWidth": MAP_MIN_SIZE[0], "maxWidth": 1800, "minHeight": MAP_MIN_SIZE[1], "maxHeight": 1020}
@@ -292,7 +295,8 @@ DEFAULT_WIDGET_ORDER = {
             "steering_wheel", "torque_bar", "following_distance", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
             STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, "rear_fog"),
   "compact": ("pip_left", "pip_right", "speed_limit", "max_speed", "steering_wheel", "torque_bar",
-              "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET, STOPPED_TIMER_WIDGET, "rear_fog"),
+              "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
+              STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog"),
 }
 
 
@@ -347,7 +351,7 @@ def customization_metadata():
 
 
 def default_document():
-  return {"version": 14, "clock24Hour": False, "reduceMotion": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
+  return {"version": 15, "clock24Hour": False, "reduceMotion": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
           "widgetColors": {profile: {} for profile in PROFILES}, "layouts": {
     profile: {key: {**widget["default"], **({"size": WIDGET_SIZES[key][profile][1]} if key in WIDGET_SIZES else {})}
               for key, widget in data["widgets"].items()}
@@ -401,7 +405,7 @@ def _compact_action_collisions(layout):
   actions, area = layout['speed_limit_actions'], widgets['speed_limit_actions']
   for key, widget in widgets.items():
     saved = layout[key]
-    if (not saved['enabled'] or key in ('speed_limit_actions', 'speed_limit', 'stopped_timer') or widget.get('layer') == 'underlay'):
+    if (not saved['enabled'] or key in ('speed_limit_actions', 'speed_limit', 'stopped_timer', NAV_CARD_WIDGET) or widget.get('layer') == 'underlay'):
       continue
     width, height = (saved['size'],) * 2 if key in WIDGET_SIZES else (widget['width'], widget['height'])
     if (saved['x'] < actions['x'] + area['width'] and saved['x'] + width > actions['x'] and
@@ -419,6 +423,19 @@ def migrate_large_sign_layout(layout, bounds, *, widgets=None, extra_height=0):
     actions['x'] = card['x'] + ACTION_X - 88
     actions['y'] = min(card['y'] + ACTION_Y - 75,
                        bounds['y'] + bounds['height'] - widgets['speed_limit_actions']['height'])
+
+
+# Attached action gaps below the card before the large speed group grew 1.3x: plain, inline sources, sources card.
+SMALL_CARD_ACTION_GAPS = (192, 284, 292)
+
+
+def migrate_attached_actions_gap(layout, bounds):
+  """Keep attached actions below the grown card; place_attached_slc_actions then adds any sources row."""
+  card, actions = layout['cruise_limits'], layout['speed_limit_actions']
+  if actions['x'] == card['x'] + ACTION_X - 88 and actions['y'] - card['y'] in SMALL_CARD_ACTION_GAPS:
+    # Raise a low card so the moved actions still fit on screen and stay attached.
+    card['y'] = min(card['y'], bounds['y'] + bounds['height'] - ACTION_HEIGHT - (ACTION_Y - 75))
+    actions['y'] = card['y'] + ACTION_Y - 75
 
 
 def place_attached_slc_actions(layout, bounds, extra_height):
@@ -480,7 +497,7 @@ def migrate_confirmation_layout(layout, profile, widgets, bounds, *, extra_heigh
 
 
 def validate_document(value):
-  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 15):
+  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 16):
     raise ValueError("Invalid customization version")
   fields = {"version", "palette", "layouts"} | ({"widgetColors"} if value["version"] >= 2 else set())
   if value["version"] >= 3:
@@ -729,6 +746,8 @@ def validate_document(value):
       migrate_speed_layout(result['layouts'][profile], profile, PROFILES[profile]['bounds'], old_gap)
   elif value['version'] == 8:
     migrate_speed_layout(result['layouts']['compact'], 'compact', PROFILES['compact']['bounds'], previous=COMPACT_SPEED_LAYOUT_V8)
+  if value['version'] < 15:
+    migrate_attached_actions_gap(result['layouts']['large'], PROFILES['large']['bounds'])
   if value['version'] < 11:
     for profile, data in PROFILES.items():
       actions = result['layouts'][profile]['speed_limit_actions']
@@ -748,11 +767,11 @@ def validate_document(value):
           sign.update(x=LIMIT_RECTS['compact'][0], y=LIMIT_RECTS['compact'][1])
       if profile == 'large' and result.get('speedSources') is True:
         card, actions = result['layouts'][profile]['cruise_limits'], result['layouts'][profile]['speed_limit_actions']
-        old_gap = 284 if value['version'] == 12 else ACTION_Y - 75 + SOURCE_ROW_HEIGHT
+        old_gap = 284 if value['version'] == 12 else 192 + SOURCE_ROW_HEIGHT
         old_gap += GAP if result.get('speedSourcesCard') is True else 0
         if actions['x'] == card['x'] + ACTION_X - 88 and actions['y'] == card['y'] + old_gap:
           actions['y'] = card['y'] + ACTION_Y - 75
-    if value['version'] < 14:
+    if value['version'] < 15:
       migrate_confirmation_layout(result['layouts'][profile], profile, data['widgets'], data['bounds'],
                                   extra_height=sources_extent(result) if profile == 'large' else 0)
     elif not confirmation_layout_valid(result['layouts'][profile], profile, data['widgets'], data['bounds'],

@@ -25,15 +25,15 @@ metadata.widgets.jetlink_status = { label: "Jetlink status", kind: "jetlink_stat
 metadata.widgetOrder = [...(metadata.widgetOrder || Object.keys(native.metadata.profiles.large.widgets)), "jetlink_status", "car_exit"]
 const widgets = Object.fromEntries(Object.entries(metadata.widgets).map(([id, widget]) => [id,
   { ...widget.default, ...(widget.resizable ? { size: widget.resizable.default } : {}) }]))
-const doc = { version: 6, clock24Hour: false, largeUiGammaTrial: false, blindSpotBorder: false, signalBorder: false, blindSpotCamera: false, hidePersonalityAlerts: false, wheelPedalFeedback: false, leadIndicator: false, leadInfo: "Off", speedSources: false, speedSourcesCard: false, speedAlign: "center", canvas: { width: 2880, height: 1080 }, widgets }
+const doc = { version: 7, clock24Hour: false, largeUiGammaTrial: false, blindSpotBorder: false, signalBorder: false, blindSpotCamera: false, hidePersonalityAlerts: false, wheelPedalFeedback: false, leadIndicator: false, leadInfo: "Off", speedSources: false, speedSourcesCard: false, speedAlign: "center", canvas: { width: 2880, height: 1080 }, widgets }
 const raw = { version: 1, document: doc, defaults: copy(doc), metadata,
   screen: { width: 1280, height: 720, margin_width: 0, margin_height: 240 },
   revision: "aa-screen-and-layout", editable: true, valid: true,
   colors: { palette: native.document.palette, widgetColors: native.document.widgetColors.large, roadColors: {} } }
 const data = editorSnapshot(raw)
 assert.deepEqual(editorSnapshot({ ...raw, document: { ...doc, version: 4 }, defaults: { ...doc, version: 4 } }).document,
-  data.document, "version 4 layouts remain readable alongside the backend's version 6")
-for (const bad of [{ version: 7 }, { version: "5" }, { canvas: { width: 1920, height: 1080 } }])
+  data.document, "version 4 layouts remain readable alongside the backend's version 7")
+for (const bad of [{ version: 8 }, { version: "5" }, { canvas: { width: 1920, height: 1080 } }])
   assert.throws(() => editorSnapshot({ ...raw, document: { ...doc, ...bad } }), /does not match/)
 
 assert.equal(validSnapshot(data), true)
@@ -260,7 +260,7 @@ const draft = copy(feed.data.document)
 draft.layouts.large.current_speed.x += 20
 assert.equal(await feed.save(draft), true)
 assert.equal(requests[0].url, "./api/starport/layout")
-assert.equal(requests[1].body.document.version, 6)
+assert.equal(requests[1].body.document.version, 7)
 assert.deepEqual(Object.keys(requests[1].body.document).sort(), ["blindSpotBorder", "blindSpotCamera", "canvas", "clock24Hour", "hidePersonalityAlerts", "largeUiGammaTrial", "leadIndicator", "leadInfo", "signalBorder", "speedAlign", "speedSources", "speedSourcesCard", "version", "wheelPedalFeedback", "widgets"])
 assert.equal(requests[1].body.document.widgets.current_speed.x, 1170)
 assert.equal(requests[1].body.document.speedAlign, "center")
@@ -317,3 +317,43 @@ console.log('Projection layers survive editor translation and save payload')
   assert.equal(grown.size, "big")
   assert.match(OnroadLayoutPage.template, /setWidgetSize\(size\)/)
 }
+
+// StarPort-only sizes reuse the map's handles and numeric controls without stretching cameras or text.
+const { clampBox } = await import('../web/js/onroad-layout-document.js')
+const scaled = editorSnapshot(raw)
+for (const [id, kind, width, height] of [['pip_left', 'pip_camera', 300, 300], ['pip_right', 'pip_camera', 300, 300], ['nav_card', 'nav_card', 600, 240]]) {
+  scaled.metadata.profiles.large.widgets[id] = { label: id, kind, width, height, colors: {},
+    aspectRatio: width / height, box: {minWidth: width / 2, minHeight: height / 2, maxWidth: width * 2, maxHeight: height * 2},
+    default: {x: 30, y: 30, enabled: true, width, height} }
+  scaled.document.layouts.large[id] = copy(scaled.metadata.profiles.large.widgets[id].default)
+  scaled.defaults.layouts.large[id] = copy(scaled.metadata.profiles.large.widgets[id].default)
+}
+scaled.metadata.profiles.large.widgetOrder = [...scaled.metadata.profiles.large.widgetOrder.filter(id => id !== "car_exit"), "pip_left", "pip_right", "nav_card", "car_exit"]
+assert.equal(validSnapshot(scaled), true)
+for (const id of ['pip_left', 'pip_right', 'nav_card']) {
+  const profile = scaled.metadata.profiles.large, at = scaled.document.layouts.large[id], widget = profile.widgets[id]
+  for (const factor of [.1, .5, 1.5, 10]) {
+    const sized = clampBox(profile, id, at, at.width * factor, at.height * factor)
+    assert.ok(Math.abs(sized.width / widget.aspectRatio - sized.height) <= 1)
+    assert.ok(sized.width >= widget.box.minWidth && sized.width <= widget.box.maxWidth)
+    assert.ok(sized.height >= widget.box.minHeight && sized.height <= widget.box.maxHeight)
+  }
+  const sized = clampBox(profile, id, at, at.width, at.height * 1.5)
+  assert.equal(sized.width, at.width * 1.5, 'height input changes both axes')
+  Object.assign(at, sized)
+  assert.equal(validDocument(scaled.document, scaled.metadata), true)
+  assert.deepEqual(projectionPayload({document: scaled.document, revision: 'resize'}, scaled.metadata).document.widgets[id], at)
+}
+const distorted = copy(scaled.document)
+distorted.layouts.large.pip_left.height += 40
+assert.equal(validDocument(distorted, scaled.metadata), false)
+console.log('StarPort PiP/nav sizes: limits, aspect, numeric controls, validation and save payload passed')
+const history = []
+const resizeVm = {editable: true, limitProfile: scaled.metadata.profiles.large,
+  state: {draft: copy(scaled.document), drag: null}, recordChange: before => history.push(before)}
+Object.defineProperty(resizeVm, 'layout', {get: () => resizeVm.state.draft.layouts.large})
+assert.equal(OnroadLayoutPage.methods.resizeBox.call(resizeVm, 'pip_left', 320, 320), true)
+assert.equal(history.length, 1)
+assert.deepEqual(widgetSize(resizeVm.limitProfile.widgets.pip_left, resizeVm.layout.pip_left), [320, 320])
+resizeVm.state.draft = history.pop()
+assert.deepEqual(resizeVm.layout.pip_left, scaled.document.layouts.large.pip_left, 'undo restores the entire previous size')

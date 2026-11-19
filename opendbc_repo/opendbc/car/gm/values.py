@@ -326,7 +326,8 @@ def is_lacrosse_gateway_profile(cp: CarParams) -> bool:
 
 
 def is_gm_auto_hold(cp: CarParams) -> bool:
-  return ((is_volt_gateway_longitudinal(cp) or is_volt_ascm_longitudinal(cp) or is_volt_camera_longitudinal(cp) or
+  return (getattr(cp, 'openpilotLongitudinalControl', False) and
+          (is_volt_gateway_longitudinal(cp) or is_volt_ascm_longitudinal(cp) or is_volt_camera_longitudinal(cp) or
            is_volt_sdgm_profile(cp, longitudinal=True) or is_volt_camera_removed(cp, longitudinal=True) or
            is_lacrosse_gateway_profile(cp) and cp.openpilotLongitudinalControl) and
           gm_control_word(cp) in (0x4084, 0xC084, 0x4287, 0x4687, 0x4A87, 0x4E87, 0x4087, 0x5087, 0x5487,
@@ -358,6 +359,8 @@ VOLT_ASCM_ALLOWED_FLAGS = VOLT_ASCM_REQUIRED_FLAGS | VOLT_ASCM_OPTIONAL_FLAGS
 def is_volt_ascm_longitudinal(cp: CarParams) -> bool:
   """Admit the exact ASCM Volt longitudinal and physical interceptor configurations."""
   try:
+    if cp.brand != 'gm' or cp.carFingerprint != CAR.CHEVROLET_VOLT_ASCM:
+      return False
     profile = camera_acc_pedal_profile(cp)
     if profile is not None and profile.topology == "ascm":
       return profile.longitudinal
@@ -472,8 +475,9 @@ def volt_sdgm_accepted_accel_max(cp: CarParams, speed: float) -> float:
 
 
 def is_volt_longitudinal(cp: CarParams) -> bool:
-  return (is_volt_gateway_longitudinal(cp) or is_volt_ascm_longitudinal(cp) or is_volt_camera_longitudinal(cp) or
-          is_volt_sdgm_profile(cp, longitudinal=True) or is_volt_camera_removed(cp, longitudinal=True))
+  return (getattr(cp, 'openpilotLongitudinalControl', False) and
+          (is_volt_gateway_longitudinal(cp) or is_volt_ascm_longitudinal(cp) or is_volt_camera_longitudinal(cp) or
+          is_volt_sdgm_profile(cp, longitudinal=True) or is_volt_camera_removed(cp, longitudinal=True)))
 
 
 def is_volt_gateway_alternate_brake(cp: CarParams) -> bool:
@@ -1052,6 +1056,20 @@ def is_silverado_cc_stock_profile(cp):
 ORDINARY_CC_CAR = CC_GATEWAY_STOCK_CAR - {CAR.CHEVROLET_SILVERADO_CC}
 ORDINARY_CC_WORD = 0xC160
 
+def is_ordinary_cc_stock_profile(cp):
+  """Conventional cruise retains the stock owner when speed control is disabled."""
+  try:
+    return (cp.brand == 'gm' and cp.carFingerprint in ORDINARY_CC_CAR and
+            cp.networkLocation == CarParams.NetworkLocation.gateway and
+            cp.transmissionType == CarParams.TransmissionType.automatic and cp.radarUnavailable and
+            cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and control_flags(cp) == 0 and
+            len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == CarParams.SafetyModel.gm and
+            int(cp.safetyConfigs[0].safetyParam) == int(GMSafetyFlags.NO_ACC))
+  except (AttributeError, IndexError, TypeError, ValueError):
+    return False
+
+
 MALIBU_CC_F1_WORD = 0xC161
 MALIBU_CC_F1_STOCK_WORD = 0xC162
 MALIBU_CC_F1_SOURCES = {0x184: 8, 0x34A: 5, 0x348: 5, 0x1E1: 7, 0xF1: 6, 0x1C4: 8,
@@ -1160,7 +1178,7 @@ def volt_camera_pedal_word(profile, auto_hold: bool, one_pedal: bool) -> int:
 
 def camera_acc_pedal_profile(cp):
   try:
-    if cp.brand != 'gm' or cp.carFingerprint not in CAMERA_ACC_PEDAL_CAR:
+    if cp.brand != 'gm' or not int(cp.flags) & _GM_PEDAL_LONG_FLAG or cp.carFingerprint not in CAMERA_ACC_PEDAL_CAR:
       return None
     if len(cp.safetyConfigs) != 1:
       return None
@@ -1311,6 +1329,8 @@ MALIBU_HYBRID_SOURCES = {0x184: 8, 0x34A: 5, 0x348: 5, 0x1E1: 7, 0x1C4: 8,
 
 def malibu_hybrid_profile(cp):
   try:
+    if cp.brand != 'gm' or cp.carFingerprint != CAR.CHEVROLET_MALIBU_HYBRID_CC:
+      return None
     if len(cp.safetyConfigs) != 1:
       return None
     profile = MALIBU_HYBRID_PROFILES.get(int(cp.safetyConfigs[0].safetyParam))

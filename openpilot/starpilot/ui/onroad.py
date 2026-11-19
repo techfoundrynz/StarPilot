@@ -30,6 +30,7 @@ from openpilot.starpilot.ui.onroad_curve import GlowPhase, controlling as curve_
 from openpilot.starpilot.ui.onroad_conditional import stop_active
 from openpilot.starpilot.ui.onroad_corner import CornerHintCache, render_corner_hint
 from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud, UnifiedSpeedWidget, SteeringWheelWidget
+from openpilot.starpilot.ui.onroad_widget_style import draw_top_scrim
 from openpilot.starpilot.ui.onroad_cem_gauge import AetherGauge
 from openpilot.starpilot.ui.live_developer_sidebar import render_sidebar as render_live_sidebar
 from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH
@@ -341,6 +342,7 @@ class OnroadView:
         if state.stopped_duration_s is not None:
           submit(STOPPED_TIMER_WIDGET, lambda: self._stopped_timer(state, state.stopped_duration_s))
     else:
+      submit("nav_card", lambda: self.navigation.render(state))
       if state.alert.size == AlertSize.NONE and not driver_camera:
         submit("speed_limit", lambda: self.compact_hud._speed_limit_sign(state))
         submit("max_speed", lambda: self.compact_hud.render_max_speed(state))
@@ -390,6 +392,7 @@ class OnroadView:
         self.camera_layer(content, state)
       elif self.background_layer is not None:
         self.background_layer(content, state)
+      draw_top_scrim(content)
       ordered = bool(state.customization.get("widgetOrder", {}).get("large"))
       if ordered:
         self._ordered_widgets(content, state)
@@ -536,8 +539,8 @@ class OnroadView:
           self.extra_overlays(frame, state)
         if monitor_layer := getattr(self, "driver_monitor_layer", None):
           monitor_layer(frame, state)
-      self.navigation.render(state)
       if not ordered:
+        self.navigation.render(state)
         self._driving_mode(state)
         self._clock(state)
         self._weather(state)

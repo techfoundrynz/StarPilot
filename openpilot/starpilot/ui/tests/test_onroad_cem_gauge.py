@@ -242,8 +242,10 @@ def test_numeric_caption_declared_footprint_fits_actual_bottom_content_edge(proj
   fonts.measure.side_effect = lambda _text, _role, size: NS(width=80., height=size * Profile.LARGE.font_scale)
   gauge = AetherGauge(fonts)
   with patch.object(rl, 'draw_line_ex'):
-    sample = state('cem_curve', customization=customization)
-    gauge._draw_mini_cradle(1152., placed['y'] - 24 + 145, gauge_data(sample))
+    sample = state('cem_curve', effective=True, customization=customization)
+    data = gauge_data(sample)
+    assert data is not None
+    gauge._draw_mini_cradle(1152., placed['y'] - 24 + 145, data)
   unit_calls = [call.args for call in fonts.draw.call_args_list if call.args[0] == 'mph']
   assert len(unit_calls) == 5
   unit_size = unit_calls[-1][2]
@@ -309,11 +311,11 @@ def test_gauge_box_shrinks_to_its_content_and_saved_positions_keep_the_drawing_i
   # Android Auto version 2 layouts move the same way.
   viewport = (2880, 1080)
   aa = default_layout_for_viewport(viewport)
-  assert aa['version'] == 6
+  assert aa['version'] == 7
   aa['version'] = 2
   aa['widgets'][CEM_GAUGE_WIDGET].update(x=900, y=200)
   moved = validate_layout_for_viewport(aa, viewport)
-  assert moved['version'] == 6 and (moved['widgets'][CEM_GAUGE_WIDGET]['x'], moved['widgets'][CEM_GAUGE_WIDGET]['y']) == (944, 224)
+  assert moved['version'] == 7 and (moved['widgets'][CEM_GAUGE_WIDGET]['x'], moved['widgets'][CEM_GAUGE_WIDGET]['y']) == (944, 224)
   assert validate_layout_for_viewport(moved, viewport) == moved
 
 

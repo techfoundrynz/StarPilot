@@ -193,6 +193,7 @@ class RetentionDrive:
     car.vCruise = car.vCruiseCluster = 70 * MPH * 3.6
     self.sm['slcDashboardObservation'].speedMps = 70 * MPH
     self.ui = ui_fake()
+    self.ui.params = params
     self.ui.CP = self.cp
     self.ui.sm['carState'].canValid, self.ui.sm['carState'].canTimeout = True, False
     self.ui.sm['carControl'].enabled = self.ui.sm['selfdriveState'].enabled = True
@@ -261,7 +262,10 @@ def test_rejected_limit_stays_quiet_until_a_new_limit_is_accepted(tmp_path, acce
   returned, view, cap = drive.step(300, limit=35)
   assert not returned.result.errors
   assert returned.message.slcState.hasPending == accept_intermediate
-  assert resolve_unified_speed(view).posted_text == '35'
+  shown = resolve_unified_speed(view)
+  # A quiet rejected reading must not replace the accepted limit on the sign.
+  assert shown.posted_text == ('35' if accept_intermediate else '45')
+  assert shown.pending == accept_intermediate
   assert cap == pytest.approx(40. if accept_intermediate else 45.)
 
 
@@ -386,7 +390,7 @@ def test_retired_fallback_cannot_reset_session_or_change_set_speed_sign_and_reco
   shown = resolve_unified_speed(view)
   assert target == pytest.approx(45, abs=1e-4)
   assert (shown.max_text, shown.posted_text, shown.source, shown.status) == ('50', '45', 'map', 'Using speed limit')
-  assert shown.limit_in_use and not shown.show_last
+  assert shown.limit_in_use
   assert not view.speed_limit.driver_override_active
   recovered, view, target = drive.step(1100)
   assert not view.speed_limit.driver_override_active
@@ -417,7 +421,7 @@ def test_maps_loss_keeps_accepted_target_display_and_control(tmp_path, loss):
   assert view.speed_limit.kind != ObservationKind.VALID
   shown = resolve_unified_speed(view)
   assert (shown.max_text, shown.posted_text, shown.status) == ('70', '45', 'Using speed limit')
-  assert shown.limit_in_use and not shown.show_last
+  assert shown.limit_in_use
   assert all(slc_controls(profile, view) == () for profile in Profile)
   assert not output.message.slcState.hasPending
 
@@ -444,7 +448,7 @@ def test_long_gap_confirmation_and_recovery_keep_the_accepted_limit(tmp_path, an
   assert not output.message.slcState.hasPending
   shown = resolve_unified_speed(view)
   assert shown.posted_text == str(limit if answer == 'accept' else 45)
-  assert shown.limit_in_use and not shown.show_last
+  assert shown.limit_in_use
   assert view.speed_limit.last_received_speed_limit_mps == pytest.approx(limit * MPH)
   # A dead SLC publisher cannot make the widget claim retained control indefinitely.
   drive.ui.sm.alive['slcState'] = False
@@ -502,10 +506,10 @@ def test_retention_respects_lower_max_and_reset(tmp_path, offset):
   shown = resolve_unified_speed(view)
   assert view.speed_limit.kind != ObservationKind.VALID and shown.posted_retained
   assert shown.status == 'Using set speed'
-  assert shown.set_limited and not shown.show_last
+  # SLC still follows its accepted limit through the gap; SET below it is ordinary cruising.
+  assert not shown.limit_in_use
   assert replace(shown, posted_retained=False) == resolve_unified_speed(before)
   _, recovered, target = drive.step(400)
-  assert recovered.speed_limit.sign_recovering
   assert resolve_unified_speed(recovered) == resolve_unified_speed(before)
   assert target == pytest.approx(40, rel=0, abs=1e-4)
   drive.runtime.reset()
@@ -591,8 +595,12 @@ def test_compact_sign_keeps_accepted_value_without_pulsing_on_recovery(tmp_path)
   fonts.vertical_ink.return_value = (0, 20)
   fonts.horizontal_ink.return_value = (0, 20)
   renderer = CompactHudRenderer(fonts, Path('/unused'))
-  with patch('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.outline'):
+  with patch('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.outline') as outline, \
+       patch('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.thick_outline') as in_use_outline:
     for view in (before, held, recovered):
+      fonts.draw.reset_mock()
       renderer._speed_limit_sign(replace(view, appearance=replace(view.appearance, show_speed_limit_sign=True)))
-  assert any(call.args[0] == '45' for call in fonts.draw.call_args_list)
-  assert renderer._speed_limit_widget.pulse.start_time == -float('inf')
+      assert any(call.args[0] == '45' for call in fonts.draw.call_args_list)
+      assert renderer._speed_limit_widget.pulse.start_time == -float('inf')
+  assert in_use_outline.call_count == 3
+  outline.assert_not_called()
