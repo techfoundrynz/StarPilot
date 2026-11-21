@@ -30,13 +30,13 @@ def prepare(run_id: str, attempt: str, directory: Path) -> dict:
     raise ValueError('custom changed since this workflow started; run it again')
   git('fetch', '--no-tags', 'origin', 'refs/heads/upstream-base')
   old_upstream = git('rev-parse', 'FETCH_HEAD')
-  git('fetch', '--no-tags', 'https://github.com/firestar5683/StarPilot.git', 'refs/heads/Dom')
+  git('fetch', '--no-tags', 'https://github.com/firestar5683/StarPilot.git', 'refs/heads/stable')
   upstream = git('rev-parse', 'FETCH_HEAD')
   git('merge-base', '--is-ancestor', old_upstream, base)
   branch = f'updates/upstream-{run_id}-{attempt}'
   if upstream == old_upstream:
     output(changed='false')
-    (directory / 'review.txt').write_text('Already based on the latest upstream Dom commit. No update needed.\n')
+    (directory / 'review.txt').write_text('Already based on the latest upstream stable commit. No update needed.\n')
     return {}
   git('switch', '-c', branch)
   git('config', 'rerere.enabled', 'true')
